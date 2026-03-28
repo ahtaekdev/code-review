@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" style="height:100%;margin:0">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>Code Review</title>
+  <style>
+    :root {
+      --cr-bg: #ffffff;
+      --cr-fg: #1f2328;
+      --cr-border: #d0d7de;
+      --cr-muted-fg: #656d76;
+      --cr-accent-bg: #ddf4ff;
+      --cr-accent-fg: #0969da;
+      --cr-success-fg: #1a7f37;
+      --cr-warning-fg: #9a6700;
+      --cr-danger-fg: #cf222e;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+    #root { height: 100%; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; transition: background 0.3s ease; }
+    .is-scrolling::-webkit-scrollbar-thumb { background: var(--cr-border); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>
