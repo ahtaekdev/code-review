@@ -27,6 +27,7 @@ export const TabBar: React.FC = () => {
   if (tabs.length === 0 && !metaTab) return null;
 
   const metaActive = activeSource === 'meta' && metaTab != null;
+  const tabPadding = isMac ? '8px 12px' : '4px 12px';
 
   return (
     <div style={{
@@ -36,13 +37,14 @@ export const TabBar: React.FC = () => {
       overflow: 'hidden',
       flexShrink: 0,
     }}>
-      {isMac && <div style={{ width: 128, flexShrink: 0 }} />}
+      {isMac && <div style={{ width: 90, flexShrink: 0 }} />}
 
       {metaTab && (
         <div
           onClick={() => dispatch(activateMetaSource())}
           style={{
             ...tabBase,
+            padding: tabPadding,
             fontStyle: 'italic',
             background: metaActive
               ? 'var(--cr-accent-bg)'
@@ -64,6 +66,7 @@ export const TabBar: React.FC = () => {
             onClick={() => dispatch(activateTab(i))}
             style={{
               ...tabBase,
+              padding: tabPadding,
               background: isActive
                 ? 'var(--cr-accent-bg)'
                 : 'var(--cr-bg)',
