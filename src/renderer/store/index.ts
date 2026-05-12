@@ -6,6 +6,7 @@ import { DEFAULT_CONFIG } from '../../shared/config';
 import type { ThemeColors } from '../../shared/theme';
 import { DEFAULT_THEME } from '../../shared/theme';
 import { rpc } from '../rpc';
+import { fuzzyMatch } from './fuzzy';
 
 export type DiffMode = 'unified' | 'split' | 'newest';
 export type ViewMode = 'diff' | 'plain';
@@ -840,36 +841,6 @@ export interface FuzzyMatch {
   path: string;
   score: number;
   matches: number[]; // indices into path that matched
-}
-
-function fuzzyMatch(query: string, target: string): { score: number; matches: number[] } | null {
-  const lowerQuery = query.toLowerCase();
-  const lowerTarget = target.toLowerCase();
-  const matches: number[] = [];
-  let qi = 0;
-  let score = 0;
-  let prevMatchIdx = -2;
-
-  for (let ti = 0; ti < lowerTarget.length && qi < lowerQuery.length; ti++) {
-    if (lowerTarget[ti] === lowerQuery[qi]) {
-      matches.push(ti);
-      // consecutive match bonus
-      if (ti === prevMatchIdx + 1) score += 5;
-      // filename match bonus (after last '/')
-      const lastSlash = target.lastIndexOf('/');
-      if (ti > lastSlash) score += 3;
-      // start-of-segment bonus (after '/' or at start)
-      if (ti === 0 || target[ti - 1] === '/') score += 8;
-      score += 1;
-      prevMatchIdx = ti;
-      qi++;
-    }
-  }
-
-  if (qi < lowerQuery.length) return null;
-  // penalize longer paths slightly
-  score -= target.length * 0.1;
-  return { score, matches };
 }
 
 export const selectFuzzyResults = createSelector(
