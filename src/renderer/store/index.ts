@@ -647,6 +647,18 @@ const uiSlice = createSlice({
           }
         }
       })
+      // --- prune stale "accepted for commit" selections when git
+      // status changes (e.g. user committed or staged externally) ---
+      .addCase(fetchGitStatus.fulfilled, (state, action) => {
+        const ctx = state.perFolder[state.currentFolder];
+        if (!ctx) return;
+        const changed = new Set<string>();
+        for (const f of action.payload.files) changed.add(f.path);
+        for (const p of action.payload.untracked) changed.add(p);
+        for (const path of Object.keys(ctx.acceptedFiles)) {
+          if (!changed.has(path)) delete ctx.acceptedFiles[path];
+        }
+      })
       // --- openInTab ---
       .addCase(openInTab.pending, (state, action) => {
         const ctx = getCtx(state);
