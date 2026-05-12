@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { useAppSelector, useAppDispatch, selectActiveView, selectActiveFilePath, toggleGap, toggleAllGaps, addReviewComment } from './store';
+import { useAppSelector, useAppDispatch, selectActiveView, selectActiveFilePath, toggleGap, toggleAllGaps, addReviewComment, isEmptyDiff } from './store';
 import { matchesShortcut, formatShortcut } from './shortcuts';
 import type { DiffMode, ReviewComment } from './store';
 import { MONO_FONT } from './DiffView';
@@ -214,7 +214,16 @@ export const DiffPanel: React.FC = () => {
             {fileType === 'tracked' ? 'No diff available (file may be deleted).' : 'Empty file.'}
           </div>
         )}
-        {!viewLoading && !viewError && isDiff && fileDiff && !fileDiff.tooLarge && diffMode === 'unified' && (
+        {/* Empty-hunks payload: file is no longer modified vs HEAD. Normal
+            tabs get flipped to plain mode in the reducer and bypass this
+            branch; this message is for the meta tab (which is bound to the
+            changed-files cursor and has nothing meaningful to diff). */}
+        {!viewLoading && !viewError && isDiff && isEmptyDiff(fileDiff) && (
+          <div style={{ padding: 16, color: 'var(--cr-muted-fg)' }}>
+            File is no longer modified.
+          </div>
+        )}
+        {!viewLoading && !viewError && isDiff && fileDiff && !fileDiff.tooLarge && fileDiff.hunks.length > 0 && diffMode === 'unified' && (
           <UnifiedView
             hunks={fileDiff.hunks}
             oldFile={fileDiff.oldFile}
@@ -226,7 +235,7 @@ export const DiffPanel: React.FC = () => {
             onToggleGap={handleToggleGap}
           />
         )}
-        {!viewLoading && !viewError && isDiff && fileDiff && !fileDiff.tooLarge && diffMode === 'split' && (
+        {!viewLoading && !viewError && isDiff && fileDiff && !fileDiff.tooLarge && fileDiff.hunks.length > 0 && diffMode === 'split' && (
           <SplitView
             hunks={fileDiff.hunks}
             oldFile={fileDiff.oldFile}
@@ -238,7 +247,7 @@ export const DiffPanel: React.FC = () => {
             onToggleGap={handleToggleGap}
           />
         )}
-        {!viewLoading && !viewError && isDiff && fileDiff && !fileDiff.tooLarge && diffMode === 'newest' && (
+        {!viewLoading && !viewError && isDiff && fileDiff && !fileDiff.tooLarge && fileDiff.hunks.length > 0 && diffMode === 'newest' && (
           <NewestView hunks={fileDiff.hunks} newFile={fileDiff.newFile} newHighlight={fileDiff.newHighlight} />
         )}
 
