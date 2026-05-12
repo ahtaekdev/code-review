@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { useAppSelector, useAppDispatch, selectActiveView, selectActiveFilePath, toggleGap, toggleAllGaps, addReviewComment, isEmptyDiff } from './store';
+import { useAppSelector, useAppDispatch, selectActiveView, selectActiveFilePath, toggleGap, toggleAllGaps, addReviewComment, isStaleGit } from './store';
 import { matchesShortcut, formatShortcut } from './shortcuts';
 import type { DiffMode, ReviewComment } from './store';
 import { MONO_FONT } from './DiffView';
@@ -214,11 +214,7 @@ export const DiffPanel: React.FC = () => {
             {fileType === 'tracked' ? 'No diff available (file may be deleted).' : 'Empty file.'}
           </div>
         )}
-        {/* Empty-hunks payload: file is no longer modified vs HEAD. Normal
-            tabs get flipped to plain mode in the reducer and bypass this
-            branch; this message is for the meta tab (which is bound to the
-            changed-files cursor and has nothing meaningful to diff). */}
-        {!viewLoading && !viewError && isDiff && isEmptyDiff(fileDiff) && (
+        {!viewLoading && !viewError && isDiff && isStaleGit(fileDiff) && (
           <div style={{ padding: 16, color: 'var(--cr-muted-fg)' }}>
             File is no longer modified.
           </div>
