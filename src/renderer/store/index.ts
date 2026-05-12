@@ -26,6 +26,21 @@ function emptyTab(path: string, viewMode: ViewMode, fileType: 'tracked' | 'untra
   return { path, viewMode, fileType, fileDiff: null, plainFile: null, loading: true, error: null };
 }
 
+/**
+ * True when a FileDiff payload reports "nothing differs vs HEAD".
+ *
+ * For a file we believed was modified, this is the signal that our cached
+ * git status is stale — most commonly because the file was committed
+ * outside the app and the watcher cannot see writes inside .git/. Used by
+ * the open-in-tab / load-meta thunks (to dispatch a self-heal git status
+ * refresh), the openInTab reducer (combined with a non-null newFile, to
+ * fall back to plain rendering), and DiffPanel (to show a friendly
+ * "no longer modified" message).
+ */
+export function isStaleGit(diff: FileDiff | null | undefined): boolean {
+  return diff != null && !diff.tooLarge && diff.hunks.length === 0;
+}
+
 // --- Thunks ---
 
 export const fetchConfig = createAsyncThunk('config/fetch', () =>
@@ -46,12 +61,19 @@ export const fetchFileTree = createAsyncThunk('fileTree/fetch', () =>
 
 export const openInTab = createAsyncThunk(
   'ui/openInTab',
-  async (args: { path: string; viewMode: ViewMode; fileType: 'tracked' | 'untracked' | null }) => {
+  async (
+    args: { path: string; viewMode: ViewMode; fileType: 'tracked' | 'untracked' | null },
+    { dispatch },
+  ) => {
     if (args.viewMode === 'diff') {
       const diff = await rpc('getFileDiff', {
         path: args.path,
         untracked: args.fileType === 'untracked' ? true : undefined,
       });
+      if (isStaleGit(diff)) {
+        dispatch(fetchGitStatus());
+        dispatch(fetchFileTree());
+      }
       return { ...args, diff, plain: null as PlainFile | null };
     } else {
       const plain = await rpc('getFilePlain', { path: args.path });
@@ -62,11 +84,18 @@ export const openInTab = createAsyncThunk(
 
 export const loadMetaFile = createAsyncThunk(
   'ui/loadMetaFile',
-  async (args: { path: string; type: 'tracked' | 'untracked' }) => {
+  async (
+    args: { path: string; type: 'tracked' | 'untracked' },
+    { dispatch },
+  ) => {
     const diff = await rpc('getFileDiff', {
       path: args.path,
       untracked: args.type === 'untracked' ? true : undefined,
     });
+    if (isStaleGit(diff)) {
+      dispatch(fetchGitStatus());
+      dispatch(fetchFileTree());
+    }
     return { path: args.path, type: args.type, diff };
   },
 );
@@ -673,12 +702,24 @@ const uiSlice = createSlice({
         const ctx = getCtx(state);
         const { path, diff, plain } = action.payload;
         const tab = ctx.tabs.find((t) => t.path === path && t.loading);
-        if (tab) {
-          tab.loading = false;
-          tab.fileDiff = diff;
-          tab.plainFile = plain;
-          tab.error = null;
+        if (!tab) return;
+        tab.loading = false;
+        tab.error = null;
+
+        if (isStaleGit(diff) && diff?.newFile != null) {
+          tab.viewMode = 'plain';
+          tab.fileType = null;
+          tab.fileDiff = null;
+          tab.plainFile = {
+            content: diff.newFile,
+            highlight: diff.newHighlight,
+            tooLarge: false,
+          };
+          return;
         }
+
+        tab.fileDiff = diff;
+        tab.plainFile = plain;
       })
       .addCase(openInTab.rejected, (state, action) => {
         const ctx = getCtx(state);
