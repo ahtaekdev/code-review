@@ -7,7 +7,7 @@ import {
   closeReviewModal,
   selectPerFolder,
 } from './store';
-import { MONO_FONT } from './DiffView';
+import { MONO_FONT } from '../shared/theme';
 import { matchesShortcut, formatShortcut } from './shortcuts';
 
 function formatComments(comments: { filePath: string; startLine: number; endLine: number; codeSnippet: string; comment: string }[]): string {

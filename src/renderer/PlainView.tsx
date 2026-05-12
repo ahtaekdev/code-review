@@ -1,6 +1,6 @@
 import React from 'react';
 import type { HighlightToken } from '../shared/rpc';
-import { MONO_FONT } from './DiffView';
+import { MONO_FONT } from '../shared/theme';
 
 interface Props {
   content: string;

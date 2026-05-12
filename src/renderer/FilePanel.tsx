@@ -6,6 +6,7 @@ import {
   toggleDir, moveTreeCursor,
   type TreeRow,
 } from './store';
+import { FileIcon } from './icons/seti';
 
 export const FilePanel: React.FC = React.memo(() => {
   const dispatch = useAppDispatch();
@@ -125,12 +126,13 @@ export const FilePanel: React.FC = React.memo(() => {
                   : 'none',
               }}
             >
-              {row.isDir && (
+              {row.isDir ? (
                 <span style={{ width: 14, flexShrink: 0, color: 'var(--cr-muted-fg)', fontSize: 10, textAlign: 'center' }}>
                   {isExpanded ? '▾' : '▸'}
                 </span>
+              ) : (
+                <FileIcon path={row.path} />
               )}
-              {!row.isDir && <span style={{ width: 14, flexShrink: 0 }} />}
 
               <span style={{
                 flex: 1,

@@ -1,7 +1,7 @@
 import React from 'react';
 import type { DiffHunk, DiffLine, HighlightToken } from '../shared/rpc';
 import { diffWordsWithSpace, type Change } from '../external-lib/diff-words';
-import { MONO_FONT } from './DiffView';
+import { MONO_FONT } from '../shared/theme';
 import HiddenLinesGap from './HiddenLinesGap';
 
 interface Props {

@@ -2,7 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useAppSelector, useAppDispatch, selectActiveView, selectActiveFilePath, toggleGap, toggleAllGaps, addReviewComment, isStaleGit } from './store';
 import { matchesShortcut, formatShortcut } from './shortcuts';
 import type { DiffMode, ReviewComment } from './store';
-import { MONO_FONT } from './DiffView';
+import { MONO_FONT } from '../shared/theme';
 import { UnifiedView } from './UnifiedView';
 import { SplitView } from './SplitView';
 import { NewestView } from './NewestView';
