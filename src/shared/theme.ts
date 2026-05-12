@@ -1,3 +1,8 @@
+export const SANS_FONT =
+  "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif";
+export const MONO_FONT =
+  "'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, monospace";
+
 export interface ThemeColors {
   bg: string;
   fg: string;

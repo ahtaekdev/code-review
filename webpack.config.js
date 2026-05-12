@@ -45,7 +45,12 @@ const rendererConfig = {
     path: path.resolve(__dirname, 'dist/renderer'),
     filename: 'bundle.js',
   },
-  module: { rules: [tsRule] },
+  module: {
+    rules: [
+      tsRule,
+      { test: /\.(ttf|woff2?|eot|otf)$/, type: 'asset/resource' },
+    ],
+  },
   resolve,
   plugins: [
     new HtmlWebpackPlugin({
