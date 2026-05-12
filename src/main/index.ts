@@ -13,7 +13,6 @@ const argv = process.argv.slice(app.isPackaged ? 1 : 2);
 const devMode = argv.includes('--dev');
 let targetDir = path.resolve(argv.find((a) => !a.startsWith('--')) || '.');
 
-
 let cachedIsGitRepo: boolean | null = null;
 
 async function ensureGitRepo(): Promise<void> {
