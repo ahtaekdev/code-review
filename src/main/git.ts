@@ -94,7 +94,7 @@ function parseDiffToHunks(rawDiff: string): DiffHunk[] {
   return hunks;
 }
 
-const MAX_FILE_SIZE = 50 * 1024;
+const MAX_FILE_SIZE = 100 * 1024;
 
 async function checkTooLarge(dir: string, filePath: string): Promise<boolean> {
   try {

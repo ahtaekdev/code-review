@@ -72,7 +72,7 @@ registerRpc('getFileTree', async () => {
 });
 
 registerRpc('getFilePlain', async ({ path: filePath }) => {
-  const MAX_PLAIN = 50 * 1024;
+  const MAX_PLAIN = 100 * 1024;
   try {
     const size = await fileSize(targetDir, filePath);
     if (size > MAX_PLAIN) return { content: '', tooLarge: true };

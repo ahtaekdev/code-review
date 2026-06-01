@@ -10,7 +10,7 @@ const style: React.CSSProperties = {
   color: 'var(--cr-accent-fg)',
   cursor: 'pointer',
   padding: '4px 12px',
-  fontSize: 12,
+  fontSize: 13,
   borderTop: '1px dashed var(--cr-border)',
   borderBottom: '1px dashed var(--cr-border)',
 };
