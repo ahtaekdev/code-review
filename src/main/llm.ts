@@ -19,6 +19,10 @@ You have no tools, so do not claim you inspected files, ran commands, or changed
 const COMMIT_MESSAGE_INSTRUCTION =
   'Generate a commit message using the following diff. Output strictly only the commit message text, less than 80 characters.';
 
+const COMMIT_MESSAGE_MODEL_ID = 'gpt-5.4-mini';
+
+type AvailableModel = ReturnType<ModelRegistry['getAvailable']>[number];
+
 function createNoResourcesLoader(): ResourceLoader {
   const extensionsResult = {
     extensions: [],
@@ -70,17 +74,37 @@ function extractAssistantError(messages: AgentSession['messages']): string | und
   return undefined;
 }
 
+function selectDefaultModel(availableModels: AvailableModel[], settingsManager: SettingsManager): AvailableModel {
+  const defaultProvider = settingsManager.getDefaultProvider();
+  const defaultModel = settingsManager.getDefaultModel();
+  return (
+    (defaultProvider && defaultModel
+      ? availableModels.find((model) => model.provider === defaultProvider && model.id === defaultModel)
+      : undefined) ?? availableModels[0]
+  );
+}
+
+function selectCommitMessageModel(availableModels: AvailableModel[]): AvailableModel | undefined {
+  return availableModels.find((model) => model.id === COMMIT_MESSAGE_MODEL_ID);
+}
+
 export async function generateCommitMessage(cwd: string, paths: string[], fallbackMessage: string): Promise<string> {
   try {
     const diffContext = await getCommitMessageDiffContext(cwd, paths);
-    const result = await callLlmNoTools(cwd, `${COMMIT_MESSAGE_INSTRUCTION}\n\n${diffContext}`);
+    const result = await callLlmNoTools(cwd, `${COMMIT_MESSAGE_INSTRUCTION}\n\n${diffContext}`, {
+      modelId: COMMIT_MESSAGE_MODEL_ID,
+    });
     return result.ok && result.response.trim() ? result.response.trim() : fallbackMessage;
   } catch {
     return fallbackMessage;
   }
 }
 
-export async function callLlmNoTools(cwd: string, prompt: string): Promise<LlmCallResult> {
+export async function callLlmNoTools(
+  cwd: string,
+  prompt: string,
+  options: { modelId?: string } = {},
+): Promise<LlmCallResult> {
   if (!prompt.trim()) {
     return { ok: false, error_code: 'request_failed', error: 'Prompt is required' };
   }
@@ -95,12 +119,13 @@ export async function callLlmNoTools(cwd: string, prompt: string): Promise<LlmCa
     return { ok: false, error_code: 'not_installed' };
   }
 
-  const defaultProvider = settingsManager.getDefaultProvider();
-  const defaultModel = settingsManager.getDefaultModel();
-  const selectedModel =
-    (defaultProvider && defaultModel
-      ? availableModels.find((model) => model.provider === defaultProvider && model.id === defaultModel)
-      : undefined) ?? availableModels[0];
+  const selectedModel = options.modelId === COMMIT_MESSAGE_MODEL_ID
+    ? selectCommitMessageModel(availableModels)
+    : selectDefaultModel(availableModels, settingsManager);
+
+  if (!selectedModel) {
+    return { ok: false, error_code: 'not_installed' };
+  }
 
   let session: AgentSession | undefined;
   try {
