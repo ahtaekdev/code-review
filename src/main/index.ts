@@ -8,7 +8,7 @@ import { loadConfig, getKnownFolders, addKnownFolder, removeKnownFolder, getActi
 import { loadFullTheme } from './theme';
 import { initHighlighter, updateHighlighterTheme, highlightCode } from './highlight';
 import { createWatcher, type Watcher } from './watcher';
-import { callLlmNoTools } from './llm';
+import { callLlmNoTools, generateCommitMessage } from './llm';
 
 const argv = process.argv.slice(app.isPackaged ? 1 : 2);
 const devMode = argv.includes('--dev');
@@ -94,7 +94,8 @@ registerRpc('getConfig', async () => loadConfig());
 registerRpc('getTheme', async () => loadFullTheme().colors);
 
 registerRpc('commitFiles', async ({ paths, message }) => {
-  await commitFiles(targetDir, paths, message);
+  const commitMessage = await generateCommitMessage(targetDir, paths, message);
+  await commitFiles(targetDir, paths, commitMessage);
 });
 
 registerRpc('searchContent', async ({ query }) => {

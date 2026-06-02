@@ -10,10 +10,14 @@ import {
   type ResourceLoader,
 } from '@earendil-works/pi-coding-agent';
 import type { LlmCallResult } from '../shared/rpc';
+import { getCommitMessageDiffContext } from './git';
 
 const SYSTEM_PROMPT = `You are a helpful assistant.
 Answer the user's prompt directly and concisely.
 You have no tools, so do not claim you inspected files, ran commands, or changed anything.`;
+
+const COMMIT_MESSAGE_INSTRUCTION =
+  'Generate a commit message using the following diff. Output strictly only the commit message text, less than 80 characters.';
 
 function createNoResourcesLoader(): ResourceLoader {
   const extensionsResult = {
@@ -64,6 +68,16 @@ function extractAssistantError(messages: AgentSession['messages']): string | und
     }
   }
   return undefined;
+}
+
+export async function generateCommitMessage(cwd: string, paths: string[], fallbackMessage: string): Promise<string> {
+  try {
+    const diffContext = await getCommitMessageDiffContext(cwd, paths);
+    const result = await callLlmNoTools(cwd, `${COMMIT_MESSAGE_INSTRUCTION}\n\n${diffContext}`);
+    return result.ok && result.response.trim() ? result.response.trim() : fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
 }
 
 export async function callLlmNoTools(cwd: string, prompt: string): Promise<LlmCallResult> {

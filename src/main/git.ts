@@ -95,6 +95,8 @@ function parseDiffToHunks(rawDiff: string): DiffHunk[] {
 }
 
 const MAX_FILE_SIZE = 100 * 1024;
+const COMMIT_MESSAGE_FILE_LIMIT = 10;
+const COMMIT_MESSAGE_LINES_PER_FILE = 100;
 
 async function checkTooLarge(dir: string, filePath: string): Promise<boolean> {
   try {
@@ -206,6 +208,64 @@ export async function getGitStatus(dir: string): Promise<GitStatus> {
   }
 
   return { branch, files, untracked };
+}
+
+function limitDiffLines(diff: string): string {
+  const lines = diff.split(/\r?\n/);
+  if (lines.length <= COMMIT_MESSAGE_LINES_PER_FILE) return diff;
+  const limited = lines.slice(0, COMMIT_MESSAGE_LINES_PER_FILE);
+  limited[COMMIT_MESSAGE_LINES_PER_FILE - 1] = '...diff truncated after 100 lines';
+  return limited.join('\n');
+}
+
+function formatUntrackedRawDiff(filePath: string, content: string): string {
+  const lines = content.split(/\r?\n/);
+  const out = [
+    `diff --git a/${filePath} b/${filePath}`,
+    'new file mode 100644',
+    '--- /dev/null',
+    `+++ b/${filePath}`,
+    `@@ -0,0 +1,${lines.length} @@`,
+  ];
+  out.push(...lines.map((line) => `+${line}`));
+  return out.join('\n');
+}
+
+async function getCommitMessageDiffForFile(dir: string, filePath: string, isUntracked: boolean): Promise<string> {
+  if (await checkTooLarge(dir, filePath)) {
+    return `diff --git a/${filePath} b/${filePath}\n[diff omitted: file too large]`;
+  }
+
+  if (isUntracked) {
+    const content = await getNewFile(dir, filePath);
+    return content == null
+      ? `diff --git a/${filePath} b/${filePath}\n[diff omitted: file could not be read]`
+      : formatUntrackedRawDiff(filePath, content);
+  }
+
+  const rawDiff = await getRawDiff(dir, filePath);
+  return rawDiff.trim()
+    ? rawDiff
+    : `diff --git a/${filePath} b/${filePath}\n[no diff available]`;
+}
+
+export async function getCommitMessageDiffContext(dir: string, paths: string[]): Promise<string> {
+  const status = await getGitStatus(dir);
+  const untracked = new Set(status.untracked);
+  const includedPaths = paths.slice(0, COMMIT_MESSAGE_FILE_LIMIT);
+  const sections: string[] = [];
+
+  for (const filePath of includedPaths) {
+    const diff = await getCommitMessageDiffForFile(dir, filePath, untracked.has(filePath));
+    sections.push(limitDiffLines(diff));
+  }
+
+  const omittedCount = paths.length - includedPaths.length;
+  if (omittedCount > 0) {
+    sections.push(`...and ${omittedCount} more files omitted.`);
+  }
+
+  return sections.join('\n\n');
 }
 
 export async function commitFiles(
