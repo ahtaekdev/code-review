@@ -7,6 +7,10 @@ export interface PlainFile {
   tooLarge?: boolean;
 }
 
+export type LlmCallResult =
+  | { ok: true; response: string }
+  | { ok: false; error_code: 'not_installed' | 'request_failed'; error?: string };
+
 export interface RpcSchema {
   getGitStatus: {
     args: {};
@@ -79,6 +83,10 @@ export interface RpcSchema {
   searchContent: {
     args: { query: string };
     response: ContentSearchFileResult[];
+  };
+  callLlm: {
+    args: { prompt: string };
+    response: LlmCallResult;
   };
 }
 
