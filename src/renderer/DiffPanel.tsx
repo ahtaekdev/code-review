@@ -39,6 +39,8 @@ export const DiffPanel: React.FC = () => {
   const filePath = useAppSelector(selectActiveFilePath);
   const shortcuts = useAppSelector((s) => s.config.data.shortcuts);
   const diffMode = useAppSelector((s) => s.ui.diffMode);
+  const compareMode = useAppSelector((s) => s.ui.compareMode);
+  const compareBase = useAppSelector((s) => s.gitStatus.data?.baseBranch);
   const expandedGaps = useAppSelector((s) => s.ui.expandedGaps);
   const allExpanded = useAppSelector((s) => s.ui.allExpanded);
 
@@ -159,6 +161,7 @@ export const DiffPanel: React.FC = () => {
 
   const { path: selectedFile, viewMode, fileDiff, plainFile, loading: viewLoading, error: viewError, fileType } = view;
   const handleToggleGap = (gapId: string) => dispatch(toggleGap(gapId));
+  const compareLabel = compareMode === 'primary' ? `vs ${compareBase ?? 'primary'}` : 'git status';
   const isDiff = viewMode === 'diff';
 
   return (
@@ -179,7 +182,7 @@ export const DiffPanel: React.FC = () => {
 
         {isDiff && (
           <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--cr-muted-fg)' }}>
-            {MODE_LABELS[diffMode]}
+            {MODE_LABELS[diffMode]} · {compareLabel}
           </span>
         )}
       </div>
@@ -216,7 +219,7 @@ export const DiffPanel: React.FC = () => {
         )}
         {!viewLoading && !viewError && isDiff && isStaleGit(fileDiff) && (
           <div style={{ padding: 16, color: 'var(--cr-muted-fg)' }}>
-            File is no longer modified.
+            File no longer differs in this compare mode.
           </div>
         )}
         {!viewLoading && !viewError && isDiff && fileDiff && !fileDiff.tooLarge && fileDiff.hunks.length > 0 && diffMode === 'unified' && (

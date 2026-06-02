@@ -44,16 +44,17 @@ function createWindow(): BrowserWindow {
 
 initRpc();
 
-registerRpc('getGitStatus', async () => {
+registerRpc('getGitStatus', async ({ compareMode }) => {
   await ensureGitRepo();
-  return getGitStatus(targetDir);
+  return getGitStatus(targetDir, compareMode);
 });
 
-registerRpc('getFileDiff', async ({ path: filePath, untracked }) => {
+registerRpc('getFileDiff', async ({ path: filePath, untracked, compareMode }) => {
   await ensureGitRepo();
-  const diff = untracked
+  const mode = compareMode ?? 'status';
+  const diff = mode === 'status' && untracked
     ? await getUntrackedFileDiff(targetDir, filePath)
-    : await getFileDiff(targetDir, filePath);
+    : await getFileDiff(targetDir, filePath, mode);
 
   if (!diff.tooLarge) {
     const [oldHL, newHL] = await Promise.all([
@@ -67,9 +68,9 @@ registerRpc('getFileDiff', async ({ path: filePath, untracked }) => {
   return diff;
 });
 
-registerRpc('getFileTree', async () => {
+registerRpc('getFileTree', async ({ compareMode }) => {
   await ensureGitRepo();
-  return getFileTree(targetDir);
+  return getFileTree(targetDir, compareMode);
 });
 
 registerRpc('getFilePlain', async ({ path: filePath }) => {

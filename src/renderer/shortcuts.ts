@@ -11,14 +11,28 @@ function matchesSingle(e: KeyboardEvent, single: string): boolean {
   return e.key.toLowerCase() === key;
 }
 
-/** Check if a KeyboardEvent matches a shortcut string. Supports `|` for alternatives (e.g. "j|arrowdown"). */
+function splitShortcutAlternatives(shortcut: string): string[] {
+  const alternatives: string[] = [];
+  let start = 0;
+
+  for (let i = 0; i < shortcut.length; i++) {
+    if (shortcut[i] === '|' && i > start && i < shortcut.length - 1 && shortcut[i - 1] !== '+') {
+      alternatives.push(shortcut.slice(start, i));
+      start = i + 1;
+    }
+  }
+
+  alternatives.push(shortcut.slice(start));
+  return alternatives;
+}
+
+/** Check if a KeyboardEvent matches a shortcut string. Supports `|` for alternatives (e.g. "j|arrowdown") and as a key (e.g. "ctrl+shift+|"). */
 export function matchesShortcut(e: KeyboardEvent, shortcut: string): boolean {
-  return shortcut.split('|').some((alt) => matchesSingle(e, alt.trim()));
+  return splitShortcutAlternatives(shortcut).some((alt) => matchesSingle(e, alt.trim()));
 }
 
 export function formatShortcut(shortcut: string): string {
-  return shortcut
-    .split('|')
+  return splitShortcutAlternatives(shortcut)
     .map((alt) =>
       alt
         .trim()

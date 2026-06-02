@@ -5,6 +5,7 @@ export interface ShortcutConfig {
   commit: string;
   showConfig: string;
   cycleDiffMode: string;
+  toggleCompareMode: string;
   nextTab: string;
   prevTab: string;
   closeTab: string;
@@ -52,6 +53,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     commit: 'ctrl+enter',
     showConfig: 'ctrl+q',
     cycleDiffMode: 'ctrl+\\',
+    toggleCompareMode: 'ctrl+shift+|',
     nextTab: 'ctrl+=',
     prevTab: 'ctrl+-',
     closeTab: 'ctrl+0',
@@ -93,6 +95,7 @@ export const SHORTCUT_LABELS: Record<keyof ShortcutConfig, string> = {
   commit: 'Commit accepted files',
   showConfig: 'Show shortcuts',
   cycleDiffMode: 'Cycle diff mode',
+  toggleCompareMode: 'Toggle compare mode',
   fuzzySearch: 'Fuzzy file search',
   contentSearch: 'Search file contents',
   showReview: 'Show review comments',

@@ -33,6 +33,7 @@ import {
   toggleReviewModal,
   closeReviewModal,
   cycleDiffMode,
+  toggleCompareMode,
   toggleAllGaps,
   openFolderPicker,
   closeFolderPicker,
@@ -98,6 +99,7 @@ export const App: React.FC = () => {
   const treeCursor = useAppSelector((s) => selectPerFolder(s).treeCursor);
   const visibleRows = useAppSelector(selectVisibleRows);
   const changedPaths = useAppSelector(selectChangedPaths);
+  const compareMode = useAppSelector((s) => s.ui.compareMode);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -185,6 +187,11 @@ export const App: React.FC = () => {
       if (matchesShortcut(e, shortcuts.cycleDiffMode)) {
         e.preventDefault();
         dispatch(cycleDiffMode());
+      } else if (matchesShortcut(e, shortcuts.toggleCompareMode)) {
+        e.preventDefault();
+        dispatch(toggleCompareMode());
+        dispatch(fetchGitStatus());
+        dispatch(fetchFileTree());
       } else if (matchesShortcut(e, shortcuts.toggleAllGaps)) {
         e.preventDefault();
         dispatch(toggleAllGaps());
@@ -207,6 +214,7 @@ export const App: React.FC = () => {
         e.preventDefault();
         const cursorRow = visibleRows[treeCursor];
         const cursorPath = cursorRow && !cursorRow.isDir ? cursorRow.path : null;
+        if (compareMode !== 'status') return;
         if (cursorPath && changedPaths.has(cursorPath)) {
           dispatch(toggleAccepted(cursorPath));
         } else if (activeFilePath) {
@@ -214,7 +222,7 @@ export const App: React.FC = () => {
         }
       } else if (matchesShortcut(e, shortcuts.commit)) {
         e.preventDefault();
-        dispatch(commitAccepted());
+        if (compareMode === 'status') dispatch(commitAccepted());
       } else if (!(['TEXTAREA', 'INPUT', 'SELECT'] as string[]).includes(document.activeElement?.tagName ?? '')) {
         if (matchesShortcut(e, shortcuts.treeCursorDown)) {
           e.preventDefault();
@@ -239,7 +247,7 @@ export const App: React.FC = () => {
         }
       }
     },
-    [dispatch, activeFilePath, shortcuts, modalOpen, fuzzySearchOpen, contentSearchOpen, reviewModalOpen, folderPickerOpen, treeCursor, visibleRows, changedPaths],
+    [dispatch, activeFilePath, shortcuts, modalOpen, fuzzySearchOpen, contentSearchOpen, reviewModalOpen, folderPickerOpen, treeCursor, visibleRows, changedPaths, compareMode],
   );
 
   useEffect(() => {

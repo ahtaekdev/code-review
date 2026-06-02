@@ -13,15 +13,15 @@ export type LlmCallResult =
 
 export interface RpcSchema {
   getGitStatus: {
-    args: {};
+    args: { compareMode?: CompareMode };
     response: GitStatus;
   };
   getFileTree: {
-    args: {};
+    args: { compareMode?: CompareMode };
     response: string[];
   };
   getFileDiff: {
-    args: { path: string; untracked?: boolean };
+    args: { path: string; untracked?: boolean; compareMode?: CompareMode };
     response: FileDiff;
   };
   getFilePlain: {
@@ -103,7 +103,9 @@ export interface ContentSearchFileResult {
   matches: ContentSearchMatch[];
 }
 
-export type ChangeKind = 'modified' | 'deleted';
+export type CompareMode = 'status' | 'primary';
+
+export type ChangeKind = 'added' | 'modified' | 'deleted';
 
 export interface ChangedFile {
   path: string;
@@ -114,6 +116,8 @@ export interface GitStatus {
   branch: string;
   files: ChangedFile[];
   untracked: string[];
+  compareMode: CompareMode;
+  baseBranch?: string;
 }
 
 export type RpcName = keyof RpcSchema;

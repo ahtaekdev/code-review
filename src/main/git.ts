@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import type { GitStatus, ChangedFile, ChangeKind, FileDiff, DiffHunk, DiffLine, ContentSearchFileResult, ContentSearchMatch } from '../shared/rpc';
+import type { GitStatus, ChangedFile, ChangeKind, CompareMode, FileDiff, DiffHunk, DiffLine, ContentSearchFileResult, ContentSearchMatch } from '../shared/rpc';
 import parseGitDiff from '../external-lib/parse-git-diff';
 import type { Chunk, AnyLineChange } from '../external-lib/parse-git-diff';
 import { readFile, fileSize } from './fs';
@@ -17,7 +17,7 @@ export async function isGitRepo(dir: string): Promise<boolean> {
   }
 }
 
-async function getRawDiff(dir: string, filePath: string): Promise<string> {
+async function getStatusRawDiff(dir: string, filePath: string): Promise<string> {
   try {
     const { stdout } = await exec('git', ['diff', 'HEAD', '--', filePath], {
       cwd: dir,
@@ -33,9 +33,9 @@ async function getRawDiff(dir: string, filePath: string): Promise<string> {
   }
 }
 
-async function getOldFile(dir: string, filePath: string): Promise<string | null> {
+async function getGitBlob(dir: string, ref: string, filePath: string): Promise<string | null> {
   try {
-    const { stdout } = await exec('git', ['show', `HEAD:${filePath}`], {
+    const { stdout } = await exec('git', ['show', `${ref}:${filePath}`], {
       cwd: dir,
       maxBuffer: MAX_BUFFER,
     });
@@ -45,12 +45,86 @@ async function getOldFile(dir: string, filePath: string): Promise<string | null>
   }
 }
 
+async function getStatusOldFile(dir: string, filePath: string): Promise<string | null> {
+  return getGitBlob(dir, 'HEAD', filePath);
+}
+
 async function getNewFile(dir: string, filePath: string): Promise<string | null> {
   try {
     return await readFile(dir, filePath);
   } catch {
     return null;
   }
+}
+
+async function getCurrentBranch(dir: string): Promise<string> {
+  try {
+    const { stdout } = await exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir });
+    const branch = stdout.trim();
+    return branch && branch !== 'HEAD' ? branch : '(detached)';
+  } catch {
+    return '(detached)';
+  }
+}
+
+async function refExists(dir: string, ref: string): Promise<boolean> {
+  try {
+    await exec('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd: dir });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolvePrimaryBranch(dir: string): Promise<string> {
+  try {
+    const { stdout } = await exec('git', ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { cwd: dir });
+    const originHead = stdout.trim();
+    if (originHead && await refExists(dir, originHead)) return originHead;
+  } catch {
+    // origin/HEAD is optional
+  }
+
+  const candidates = ['origin/main', 'origin/master', 'main', 'master'];
+  for (const candidate of candidates) {
+    if (await refExists(dir, candidate)) return candidate;
+  }
+
+  throw new Error('Could not find a primary branch (tried origin/main, origin/master, main, master).');
+}
+
+async function getMergeBase(dir: string, baseBranch: string): Promise<string> {
+  const { stdout } = await exec('git', ['merge-base', baseBranch, 'HEAD'], {
+    cwd: dir,
+    maxBuffer: MAX_BUFFER,
+  });
+  return stdout.trim();
+}
+
+async function getPrimaryRawDiff(dir: string, filePath: string, baseBranch: string): Promise<string> {
+  const { stdout } = await exec('git', ['diff', '--no-renames', `${baseBranch}...HEAD`, '--', filePath], {
+    cwd: dir,
+    maxBuffer: MAX_BUFFER,
+  });
+  return stdout;
+}
+
+async function getGitBlobSize(dir: string, ref: string, filePath: string): Promise<number | null> {
+  try {
+    const { stdout } = await exec('git', ['cat-file', '-s', `${ref}:${filePath}`], {
+      cwd: dir,
+      maxBuffer: MAX_BUFFER,
+    });
+    const size = Number(stdout.trim());
+    return Number.isFinite(size) ? size : null;
+  } catch {
+    return null;
+  }
+}
+
+async function checkGitBlobTooLarge(dir: string, refs: string[], filePath: string): Promise<boolean> {
+  const sizes = await Promise.all(refs.map((ref) => getGitBlobSize(dir, ref, filePath)));
+  return sizes.some((size) => size != null && size > MAX_FILE_SIZE);
 }
 
 function convertChanges(changes: AnyLineChange[]): DiffLine[] {
@@ -106,14 +180,14 @@ async function checkTooLarge(dir: string, filePath: string): Promise<boolean> {
   }
 }
 
-export async function getFileDiff(dir: string, filePath: string): Promise<FileDiff> {
+async function getStatusFileDiff(dir: string, filePath: string): Promise<FileDiff> {
   if (await checkTooLarge(dir, filePath)) {
     return { hunks: [], oldFile: null, newFile: null, tooLarge: true };
   }
 
   const [rawDiff, oldFile, newFile] = await Promise.all([
-    getRawDiff(dir, filePath),
-    getOldFile(dir, filePath),
+    getStatusRawDiff(dir, filePath),
+    getStatusOldFile(dir, filePath),
     getNewFile(dir, filePath),
   ]);
 
@@ -122,6 +196,33 @@ export async function getFileDiff(dir: string, filePath: string): Promise<FileDi
     oldFile,
     newFile,
   };
+}
+
+async function getPrimaryFileDiff(dir: string, filePath: string): Promise<FileDiff> {
+  const baseBranch = await resolvePrimaryBranch(dir);
+  const mergeBase = await getMergeBase(dir, baseBranch);
+
+  if (await checkGitBlobTooLarge(dir, [mergeBase, 'HEAD'], filePath)) {
+    return { hunks: [], oldFile: null, newFile: null, tooLarge: true };
+  }
+
+  const [rawDiff, oldFile, newFile] = await Promise.all([
+    getPrimaryRawDiff(dir, filePath, baseBranch),
+    getGitBlob(dir, mergeBase, filePath),
+    getGitBlob(dir, 'HEAD', filePath),
+  ]);
+
+  return {
+    hunks: parseDiffToHunks(rawDiff),
+    oldFile,
+    newFile,
+  };
+}
+
+export async function getFileDiff(dir: string, filePath: string, compareMode: CompareMode = 'status'): Promise<FileDiff> {
+  return compareMode === 'primary'
+    ? getPrimaryFileDiff(dir, filePath)
+    : getStatusFileDiff(dir, filePath);
 }
 
 export async function getUntrackedFileDiff(dir: string, filePath: string): Promise<FileDiff> {
@@ -155,7 +256,7 @@ export async function getUntrackedFileDiff(dir: string, filePath: string): Promi
   };
 }
 
-export async function getFileTree(dir: string): Promise<string[]> {
+async function getStatusFileTree(dir: string): Promise<string[]> {
   const { stdout: trackedOut } = await exec(
     'git', ['ls-files', '--full-name'],
     { cwd: dir, maxBuffer: MAX_BUFFER },
@@ -174,16 +275,71 @@ export async function getFileTree(dir: string): Promise<string[]> {
   return [...all].sort((a, b) => a.localeCompare(b));
 }
 
-const WORKTREE_STATUS: Record<string, ChangeKind | null> = {
+async function getPrimaryChangedFiles(dir: string, baseBranch: string): Promise<ChangedFile[]> {
+  const { stdout } = await exec(
+    'git',
+    ['diff', '--name-status', '--no-renames', `${baseBranch}...HEAD`],
+    { cwd: dir, maxBuffer: MAX_BUFFER },
+  );
+
+  const files: ChangedFile[] = [];
+  for (const line of stdout.split('\n')) {
+    if (!line) continue;
+    const [code, path] = line.split('\t');
+    const status = STATUS_CHAR[code?.[0] ?? ''] ?? null;
+    if (path && status) files.push({ path, status });
+  }
+  return files;
+}
+
+async function getPrimaryFileTree(dir: string): Promise<string[]> {
+  const baseBranch = await resolvePrimaryBranch(dir);
+  const { stdout } = await exec(
+    'git', ['ls-tree', '-r', '--name-only', 'HEAD'],
+    { cwd: dir, maxBuffer: MAX_BUFFER },
+  );
+
+  const all = new Set<string>();
+  for (const line of stdout.split('\n')) {
+    if (line) all.add(line);
+  }
+
+  for (const file of await getPrimaryChangedFiles(dir, baseBranch)) {
+    all.add(file.path);
+  }
+
+  return [...all].sort((a, b) => a.localeCompare(b));
+}
+
+export async function getFileTree(dir: string, compareMode: CompareMode = 'status'): Promise<string[]> {
+  return compareMode === 'primary'
+    ? getPrimaryFileTree(dir)
+    : getStatusFileTree(dir);
+}
+
+const STATUS_CHAR: Record<string, ChangeKind | null> = {
+  A: 'added',
   M: 'modified',
   D: 'deleted',
   T: 'modified',
 };
 
-export async function getGitStatus(dir: string): Promise<GitStatus> {
+function statusFromPorcelainXY(xy: string): ChangeKind | null {
+  const indexChar = xy[0] === '.' ? ' ' : xy[0];
+  const worktreeChar = xy[1] === '.' ? ' ' : xy[1];
+
+  // A file staged as added is still an addition vs HEAD even if it has
+  // additional unstaged edits (AM).
+  if (indexChar === 'A') return 'added';
+
+  const statusChar = worktreeChar !== ' ' ? worktreeChar : indexChar;
+  return STATUS_CHAR[statusChar] ?? null;
+}
+
+async function getStatusGitStatus(dir: string): Promise<GitStatus> {
   const { stdout } = await exec(
     'git',
-    ['status', '--porcelain=v2', '--branch'],
+    ['status', '--porcelain=v2', '--branch', '--no-renames'],
     { cwd: dir, maxBuffer: MAX_BUFFER },
   );
 
@@ -196,8 +352,7 @@ export async function getGitStatus(dir: string): Promise<GitStatus> {
       branch = line.slice('# branch.head '.length);
     } else if (line.startsWith('1 ') || line.startsWith('2 ')) {
       const xy = line.slice(2, 4);
-      const worktreeChar = xy[1];
-      const status = WORKTREE_STATUS[worktreeChar] ?? null;
+      const status = statusFromPorcelainXY(xy);
       if (status) {
         const path = line.slice(line.lastIndexOf(' ') + 1);
         files.push({ path, status });
@@ -207,7 +362,22 @@ export async function getGitStatus(dir: string): Promise<GitStatus> {
     }
   }
 
-  return { branch, files, untracked };
+  return { branch, files, untracked, compareMode: 'status' };
+}
+
+async function getPrimaryGitStatus(dir: string): Promise<GitStatus> {
+  const [branch, baseBranch] = await Promise.all([
+    getCurrentBranch(dir),
+    resolvePrimaryBranch(dir),
+  ]);
+  const files = await getPrimaryChangedFiles(dir, baseBranch);
+  return { branch, files, untracked: [], compareMode: 'primary', baseBranch };
+}
+
+export async function getGitStatus(dir: string, compareMode: CompareMode = 'status'): Promise<GitStatus> {
+  return compareMode === 'primary'
+    ? getPrimaryGitStatus(dir)
+    : getStatusGitStatus(dir);
 }
 
 function limitDiffLines(diff: string): string {
@@ -243,14 +413,14 @@ async function getCommitMessageDiffForFile(dir: string, filePath: string, isUntr
       : formatUntrackedRawDiff(filePath, content);
   }
 
-  const rawDiff = await getRawDiff(dir, filePath);
+  const rawDiff = await getStatusRawDiff(dir, filePath);
   return rawDiff.trim()
     ? rawDiff
     : `diff --git a/${filePath} b/${filePath}\n[no diff available]`;
 }
 
 export async function getCommitMessageDiffContext(dir: string, paths: string[]): Promise<string> {
-  const status = await getGitStatus(dir);
+  const status = await getGitStatus(dir, 'status');
   const untracked = new Set(status.untracked);
   const includedPaths = paths.slice(0, COMMIT_MESSAGE_FILE_LIMIT);
   const sections: string[] = [];

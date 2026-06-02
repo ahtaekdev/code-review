@@ -1,6 +1,6 @@
 import { configureStore, createSlice, createAsyncThunk, createSelector } from '@reduxjs/toolkit';
 import { useDispatch, useSelector, TypedUseSelectorHook } from 'react-redux';
-import type { GitStatus, FileDiff, PlainFile, ContentSearchFileResult, ContentSearchMatch } from '../../shared/rpc';
+import type { GitStatus, CompareMode, FileDiff, PlainFile, ContentSearchFileResult, ContentSearchMatch } from '../../shared/rpc';
 import type { AppConfig } from '../../shared/config';
 import { DEFAULT_CONFIG } from '../../shared/config';
 import type { ThemeColors } from '../../shared/theme';
@@ -28,7 +28,7 @@ function emptyTab(path: string, viewMode: ViewMode, fileType: 'tracked' | 'untra
 }
 
 /**
- * True when a FileDiff payload reports "nothing differs vs HEAD".
+ * True when a FileDiff payload reports "nothing differs in the active compare mode".
  *
  * For a file we believed was modified, this is the signal that our cached
  * git status is stale — most commonly because the file was committed
@@ -52,24 +52,28 @@ export const fetchTheme = createAsyncThunk('theme/fetch', () =>
   rpc('getTheme', {}),
 );
 
-export const fetchGitStatus = createAsyncThunk('gitStatus/fetch', () =>
-  rpc('getGitStatus', {}),
-);
+export const fetchGitStatus = createAsyncThunk('gitStatus/fetch', async (_: void, { getState }) => {
+  const compareMode = (getState() as RootState).ui.compareMode;
+  return rpc('getGitStatus', { compareMode });
+});
 
-export const fetchFileTree = createAsyncThunk('fileTree/fetch', () =>
-  rpc('getFileTree', {}),
-);
+export const fetchFileTree = createAsyncThunk('fileTree/fetch', async (_: void, { getState }) => {
+  const compareMode = (getState() as RootState).ui.compareMode;
+  return rpc('getFileTree', { compareMode });
+});
 
 export const openInTab = createAsyncThunk(
   'ui/openInTab',
   async (
     args: { path: string; viewMode: ViewMode; fileType: 'tracked' | 'untracked' | null },
-    { dispatch },
+    { dispatch, getState },
   ) => {
     if (args.viewMode === 'diff') {
+      const compareMode = (getState() as RootState).ui.compareMode;
       const diff = await rpc('getFileDiff', {
         path: args.path,
         untracked: args.fileType === 'untracked' ? true : undefined,
+        compareMode,
       });
       if (isStaleGit(diff)) {
         dispatch(fetchGitStatus());
@@ -87,11 +91,13 @@ export const loadMetaFile = createAsyncThunk(
   'ui/loadMetaFile',
   async (
     args: { path: string; type: 'tracked' | 'untracked' },
-    { dispatch },
+    { dispatch, getState },
   ) => {
+    const compareMode = (getState() as RootState).ui.compareMode;
     const diff = await rpc('getFileDiff', {
       path: args.path,
       untracked: args.type === 'untracked' ? true : undefined,
+      compareMode,
     });
     if (isStaleGit(diff)) {
       dispatch(fetchGitStatus());
@@ -180,6 +186,7 @@ export const commitAccepted = createAsyncThunk(
   'ui/commitAccepted',
   async (_, { getState, dispatch }) => {
     const state = getState() as RootState;
+    if (state.ui.compareMode !== 'status') throw new Error('Committing is only available in Git status compare mode.');
     const ctx = getPerFolder(state);
     const paths = Object.keys(ctx.acceptedFiles);
     if (paths.length === 0) throw new Error('No files accepted');
@@ -459,6 +466,7 @@ interface UIState {
   contentSearchResults: ContentSearchFileResult[];
   contentSearchLoading: boolean;
   diffMode: DiffMode;
+  compareMode: CompareMode;
   expandedGaps: Record<string, boolean>;
   allExpanded: boolean;
   reviewModalOpen: boolean;
@@ -484,6 +492,7 @@ const uiSlice = createSlice({
     contentSearchResults: [],
     contentSearchLoading: false,
     diffMode: 'unified',
+    compareMode: 'status',
     expandedGaps: {},
     allExpanded: false,
     reviewModalOpen: false,
@@ -582,6 +591,18 @@ const uiSlice = createSlice({
       const modes: DiffMode[] = ['unified', 'split', 'newest'];
       const idx = modes.indexOf(state.diffMode);
       state.diffMode = modes[(idx + 1) % modes.length];
+    },
+    toggleCompareMode(state) {
+      state.compareMode = state.compareMode === 'status' ? 'primary' : 'status';
+      state.expandedGaps = {};
+      state.allExpanded = false;
+      for (const ctx of Object.values(state.perFolder)) {
+        ctx.tabs = [];
+        ctx.activeTabIndex = -1;
+        ctx.activeSource = 'meta';
+        ctx.metaTab = null;
+        ctx.acceptedFiles = {};
+      }
     },
     setDiffMode(state, action: { payload: DiffMode }) {
       state.diffMode = action.payload;
@@ -796,7 +817,7 @@ export const {
   toggleAccepted, toggleConfigModal, closeConfigModal,
   openFuzzySearch, closeFuzzySearch, setFuzzySearchQuery, moveFuzzySearchCursor,
   openContentSearch, closeContentSearch, setContentSearchQuery, moveContentSearchCursor,
-  cycleDiffMode, setDiffMode, toggleGap, toggleAllGaps,
+  cycleDiffMode, toggleCompareMode, setDiffMode, toggleGap, toggleAllGaps,
   toggleDir, collapseDir, collapseDirDeep, moveTreeCursor, expandAncestors,
   addReviewComment, removeReviewComment, clearReviewComments,
   toggleReviewModal, closeReviewModal,

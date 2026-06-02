@@ -12,6 +12,7 @@ export const FilePanel: React.FC = React.memo(() => {
   const dispatch = useAppDispatch();
   const gitStatus = useAppSelector((s) => s.gitStatus);
   const currentFolder = useAppSelector((s) => s.ui.currentFolder);
+  const compareMode = useAppSelector((s) => s.ui.compareMode);
   const fileTree = useAppSelector((s) => s.fileTree);
   const { acceptedFiles, treeCursor, expandedDirs } = useAppSelector(selectPerFolder);
 
@@ -28,9 +29,11 @@ export const FilePanel: React.FC = React.memo(() => {
     const map = new Map<string, { badge: string; color: string }>();
     if (!gitStatus.data) return map;
     for (const f of gitStatus.data.files) {
+      const isDeleted = f.status === 'deleted';
+      const isAdded = f.status === 'added';
       map.set(f.path, {
-        badge: f.status === 'modified' ? 'M' : 'D',
-        color: f.status === 'modified' ? 'var(--cr-warning-fg)' : 'var(--cr-danger-fg)',
+        badge: isDeleted ? 'D' : isAdded ? 'A' : 'M',
+        color: isDeleted ? 'var(--cr-danger-fg)' : isAdded ? 'var(--cr-success-fg)' : 'var(--cr-warning-fg)',
       });
     }
     for (const p of gitStatus.data.untracked) {
@@ -53,10 +56,12 @@ export const FilePanel: React.FC = React.memo(() => {
   const stats = React.useMemo(() => {
     if (!gitStatus.data) return [];
     const uCount = gitStatus.data.untracked.length;
+    const aCount = gitStatus.data.files.filter((f) => f.status === 'added').length;
     const dCount = gitStatus.data.files.filter((f) => f.status === 'deleted').length;
     const mCount = gitStatus.data.files.filter((f) => f.status === 'modified').length;
     const parts: { label: string; color: string }[] = [];
     if (uCount) parts.push({ label: `${uCount}u`, color: 'var(--cr-success-fg)' });
+    if (aCount) parts.push({ label: `${aCount}a`, color: 'var(--cr-success-fg)' });
     if (dCount) parts.push({ label: `${dCount}d`, color: 'var(--cr-danger-fg)' });
     if (mCount) parts.push({ label: `${mCount}m`, color: 'var(--cr-warning-fg)' });
     return parts;
@@ -70,6 +75,7 @@ export const FilePanel: React.FC = React.memo(() => {
   }
 
   const branch = gitStatus.data?.branch ?? '';
+  const compareLabel = compareMode === 'primary' ? `vs ${gitStatus.data?.baseBranch ?? 'primary'}` : 'git status';
 
   function handleRowClick(row: TreeRow, index: number) {
     dispatch(moveTreeCursor(index));
@@ -88,6 +94,7 @@ export const FilePanel: React.FC = React.memo(() => {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, fontSize: 12, color: 'var(--cr-muted-fg)' }}>
           <span>{branch}</span>
+          <span>· {compareLabel}</span>
           {stats.length > 0 && (
             <span style={{ display: 'inline-flex', gap: 4 }}>
               {stats.map((s, i) => (
@@ -151,7 +158,7 @@ export const FilePanel: React.FC = React.memo(() => {
                 </span>
               )}
 
-              {!row.isDir && acceptedFiles[row.path] && (
+              {!row.isDir && compareMode === 'status' && acceptedFiles[row.path] && (
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--cr-accent-fg)', flexShrink: 0 }} title="Accepted" />
               )}
             </div>
