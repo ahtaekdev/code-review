@@ -13,6 +13,7 @@ export interface ShortcutConfig {
   contentSearch: string;
   showReview: string;
   copyReviewComments: string;
+  copyCurrentComment: string;
   clearReviewComments: string;
   toggleAllGaps: string;
   openFolder: string;
@@ -61,6 +62,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     contentSearch: 'ctrl+shift+f',
     showReview: 'ctrl+e',
     copyReviewComments: 'c',
+    copyCurrentComment: 'ctrl+c|meta+c',
     clearReviewComments: 'x',
     toggleAllGaps: 'ctrl+;',
     openFolder: 'ctrl+o',
@@ -100,6 +102,7 @@ export const SHORTCUT_LABELS: Record<keyof ShortcutConfig, string> = {
   contentSearch: 'Search file contents',
   showReview: 'Show review comments',
   copyReviewComments: 'Copy review comments',
+  copyCurrentComment: 'Copy current comment draft',
   clearReviewComments: 'Clear review comments',
   toggleAllGaps: 'Expand / Collapse all',
   openFolder: 'Open folder picker',

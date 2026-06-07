@@ -19,13 +19,13 @@ export async function isGitRepo(dir: string): Promise<boolean> {
 
 async function getStatusRawDiff(dir: string, filePath: string): Promise<string> {
   try {
-    const { stdout } = await exec('git', ['diff', 'HEAD', '--', filePath], {
+    const { stdout } = await exec('git', ['diff', '--unified=0', 'HEAD', '--', filePath], {
       cwd: dir,
       maxBuffer: MAX_BUFFER,
     });
     return stdout;
   } catch {
-    const { stdout } = await exec('git', ['diff', '--cached', '--', filePath], {
+    const { stdout } = await exec('git', ['diff', '--unified=0', '--cached', '--', filePath], {
       cwd: dir,
       maxBuffer: MAX_BUFFER,
     });
@@ -102,7 +102,7 @@ async function getMergeBase(dir: string, baseBranch: string): Promise<string> {
 }
 
 async function getPrimaryRawDiff(dir: string, filePath: string, baseBranch: string): Promise<string> {
-  const { stdout } = await exec('git', ['diff', '--no-renames', `${baseBranch}...HEAD`, '--', filePath], {
+  const { stdout } = await exec('git', ['diff', '--no-renames', '--unified=0', `${baseBranch}...HEAD`, '--', filePath], {
     cwd: dir,
     maxBuffer: MAX_BUFFER,
   });

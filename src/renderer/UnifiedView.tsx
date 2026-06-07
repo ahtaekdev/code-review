@@ -3,6 +3,11 @@ import type { DiffHunk, DiffLine, HighlightToken } from '../shared/rpc';
 import { diffWordsWithSpace, type Change } from '../external-lib/diff-words';
 import { MONO_FONT } from '../shared/theme';
 import HiddenLinesGap from './HiddenLinesGap';
+import {
+  buildDiffRenderSections,
+  getGapHiddenCount,
+  type DiffGapState,
+} from './diffGaps';
 
 interface Props {
   hunks: DiffHunk[];
@@ -10,9 +15,8 @@ interface Props {
   newFile: string | null;
   oldHighlight?: HighlightToken[][];
   newHighlight?: HighlightToken[][];
-  expandedGaps: Record<string, boolean>;
-  allExpanded: boolean;
-  onToggleGap: (gapId: string) => void;
+  gapState: DiffGapState | null;
+  gapShortcutNumbers: Record<string, number>;
 }
 
 const gutterStyle: React.CSSProperties = {
@@ -134,28 +138,35 @@ export const UnifiedView: React.FC<Props> = ({
   newFile,
   oldHighlight,
   newHighlight,
-  expandedGaps,
-  allExpanded,
-  onToggleGap,
+  gapState,
+  gapShortcutNumbers,
 }) => {
+  const oldLines = oldFile?.split('\n') ?? [];
   const newLines = newFile?.split('\n') ?? [];
 
   if (hunks.length === 0) {
     return <pre style={{ fontFamily: MONO_FONT, fontSize: 13, lineHeight: 1.6, margin: 0 }} />;
   }
 
-  const isExpanded = (gapId: string) => allExpanded || !!expandedGaps[gapId];
-
-  function renderGapLines(startNew: number, endNew: number, startOld: number) {
+  function renderContextLines(oldStart: number, newStart: number, count: number, keyPrefix: string) {
     const rows: React.ReactNode[] = [];
-    for (let i = startNew; i <= endNew; i++) {
-      const content = i - 1 < newLines.length ? newLines[i - 1] : '';
-      const oldNo = startOld + (i - startNew);
-      const tokens = newHighlight?.[i - 1];
+    for (let i = 0; i < count; i++) {
+      const oldNo = oldStart + i > 0 && oldStart + i <= oldLines.length ? oldStart + i : undefined;
+      const newNo = newStart + i > 0 && newStart + i <= newLines.length ? newStart + i : undefined;
+      const content = newNo != null
+        ? newLines[newNo - 1]
+        : oldNo != null
+          ? oldLines[oldNo - 1]
+          : '';
+      const tokens = newNo != null
+        ? newHighlight?.[newNo - 1]
+        : oldNo != null
+          ? oldHighlight?.[oldNo - 1]
+          : undefined;
       rows.push(
-        <div key={`gap-ctx-${i}`} style={{ display: 'flex' }}>
-          <span style={gutterStyle}>{oldNo}</span>
-          <span style={gutterStyle} data-line-no={i}>{i}</span>
+        <div key={`${keyPrefix}-${i}`} style={{ display: 'flex' }}>
+          <span style={gutterStyle}>{oldNo ?? ''}</span>
+          <span style={gutterStyle} {...(newNo != null ? { 'data-line-no': newNo } : {})}>{newNo ?? ''}</span>
           <span style={contentBaseStyle}>
             {tokens ? renderHighlightedTokens(tokens) : content}
           </span>
@@ -163,28 +174,6 @@ export const UnifiedView: React.FC<Props> = ({
       );
     }
     return rows;
-  }
-
-  function renderGap(gapId: string, gapIndex: number, startNew: number, endNew: number, startOld: number) {
-    const count = endNew - startNew + 1;
-    if (count <= 0) return null;
-
-    if (isExpanded(gapId)) {
-      return (
-        <React.Fragment key={gapId}>
-          {renderGapLines(startNew, endNew, startOld)}
-        </React.Fragment>
-      );
-    }
-
-    return (
-      <HiddenLinesGap
-        key={gapId}
-        count={count}
-        index={gapIndex}
-        onClick={() => onToggleGap(gapId)}
-      />
-    );
   }
 
   function getLineTokens(line: DiffLine): HighlightToken[] | undefined {
@@ -232,38 +221,27 @@ export const UnifiedView: React.FC<Props> = ({
   }
 
   const elements: React.ReactNode[] = [];
+  const sections = buildDiffRenderSections(hunks, gapState);
 
-  const firstHunk = hunks[0];
-  const gapBeforeEnd = firstHunk.newStart - 1;
-  if (gapBeforeEnd > 0) {
-    elements.push(renderGap('gap-0', 0, 1, gapBeforeEnd, 1));
-  }
-
-  for (let idx = 0; idx < hunks.length; idx++) {
-    elements.push(
-      <React.Fragment key={`hunk-${idx}`}>{renderHunk(hunks[idx], idx)}</React.Fragment>,
-    );
-
-    if (idx < hunks.length - 1) {
-      const cur = hunks[idx];
-      const next = hunks[idx + 1];
-      const gapStartNew = cur.newStart + cur.newCount;
-      const gapEndNew = next.newStart - 1;
-      const gapStartOld = cur.oldStart + cur.oldCount;
-      if (gapEndNew >= gapStartNew) {
-        elements.push(renderGap(`gap-${idx + 1}`, idx + 1, gapStartNew, gapEndNew, gapStartOld));
-      }
+  sections.forEach((section) => {
+    if (section.kind === 'context') {
+      elements.push(...renderContextLines(section.oldStart, section.newStart, section.count, section.key));
+    } else if (section.kind === 'gap') {
+      const gapIndex = Number(section.gap.id.replace('gap-', '')) || 0;
+      elements.push(
+        <HiddenLinesGap
+          key={section.key}
+          count={getGapHiddenCount(section.gap)}
+          index={gapIndex}
+          shortcutNumber={gapShortcutNumbers[section.gap.id]}
+        />,
+      );
+    } else {
+      elements.push(
+        <React.Fragment key={section.key}>{renderHunk(section.hunk, section.hunkIndex)}</React.Fragment>,
+      );
     }
-  }
-
-  const lastHunk = hunks[hunks.length - 1];
-  const afterStartNew = lastHunk.newStart + lastHunk.newCount;
-  if (afterStartNew <= newLines.length) {
-    const afterStartOld = lastHunk.oldStart + lastHunk.oldCount;
-    elements.push(
-      renderGap(`gap-${hunks.length}`, hunks.length, afterStartNew, newLines.length, afterStartOld),
-    );
-  }
+  });
 
   return (
     <pre style={{ fontFamily: MONO_FONT, fontSize: 13, lineHeight: 1.6, margin: 0 }}>

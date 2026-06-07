@@ -7,11 +7,3 @@ export function usePlatform(): Platform {
 export function useIsMac(): boolean {
   return window.platform === 'mac';
 }
-
-export function useIsWindows(): boolean {
-  return window.platform === 'windows';
-}
-
-export function useIsLinux(): boolean {
-  return window.platform === 'linux';
-}

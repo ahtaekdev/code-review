@@ -7,10 +7,6 @@ export interface PlainFile {
   tooLarge?: boolean;
 }
 
-export type LlmCallResult =
-  | { ok: true; response: string }
-  | { ok: false; error_code: 'not_installed' | 'request_failed'; error?: string };
-
 export interface RpcSchema {
   getGitStatus: {
     args: { compareMode?: CompareMode };
@@ -27,10 +23,6 @@ export interface RpcSchema {
   getFilePlain: {
     args: { path: string };
     response: PlainFile;
-  };
-  readFile: {
-    args: { path: string };
-    response: string;
   };
   commitFiles: {
     args: { paths: string[]; message: string };
@@ -83,10 +75,6 @@ export interface RpcSchema {
   searchContent: {
     args: { query: string };
     response: ContentSearchFileResult[];
-  };
-  callLlm: {
-    args: { prompt: string };
-    response: LlmCallResult;
   };
 }
 

@@ -36,7 +36,6 @@ import {
   toggleCompareMode,
   toggleAllGaps,
   openFolderPicker,
-  closeFolderPicker,
   setCurrentFolder,
 } from './store';
 import { matchesShortcut } from './shortcuts';
@@ -49,6 +48,7 @@ import { FuzzySearchModal } from './FuzzySearchModal';
 import { ReviewModal } from './ReviewModal';
 import { FolderPickerModal } from './FolderPickerModal';
 import { ContentSearchModal } from './ContentSearchModal';
+import { SANS_FONT } from '../shared/theme';
 
 export const App: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -274,7 +274,7 @@ export const App: React.FC = () => {
   }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--cr-fg)', background: 'var(--cr-bg)', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: SANS_FONT, color: 'var(--cr-fg)', background: 'var(--cr-bg)', overflow: 'hidden' }}>
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <TabBar />

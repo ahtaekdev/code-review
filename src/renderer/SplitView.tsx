@@ -3,6 +3,11 @@ import type { DiffHunk, DiffLine, HighlightToken } from '../shared/rpc';
 import { diffWordsWithSpace, type Change } from '../external-lib/diff-words';
 import { MONO_FONT } from '../shared/theme';
 import HiddenLinesGap from './HiddenLinesGap';
+import {
+  buildDiffRenderSections,
+  getGapHiddenCount,
+  type DiffGapState,
+} from './diffGaps';
 
 interface Props {
   hunks: DiffHunk[];
@@ -10,9 +15,8 @@ interface Props {
   newFile: string | null;
   oldHighlight?: HighlightToken[][];
   newHighlight?: HighlightToken[][];
-  expandedGaps: Record<string, boolean>;
-  allExpanded: boolean;
-  onToggleGap: (gapId: string) => void;
+  gapState: DiffGapState | null;
+  gapShortcutNumbers: Record<string, number>;
 }
 
 interface RowEntry {
@@ -25,17 +29,6 @@ interface RowPair {
   left: RowEntry;
   right: RowEntry;
 }
-
-type Section =
-  | { kind: 'hunk'; pairs: RowPair[] }
-  | {
-      kind: 'gap';
-      gapId: string;
-      hiddenCount: number;
-      expanded: boolean;
-      oldLines: { content: string; lineNo: number }[];
-      newLines: { content: string; lineNo: number }[];
-    };
 
 function buildRowPairs(lines: DiffLine[]): RowPair[] {
   const pairs: RowPair[] = [];
@@ -126,7 +119,6 @@ const preBase: React.CSSProperties = {
   margin: 0,
   display: 'flex',
 };
-
 
 const ADD_WORD_BG = 'color-mix(in srgb, var(--cr-success-fg) 30%, transparent)';
 const REMOVE_WORD_BG = 'color-mix(in srgb, var(--cr-danger-fg) 30%, transparent)';
@@ -269,9 +261,8 @@ export const SplitView: React.FC<Props> = ({
   newFile,
   oldHighlight,
   newHighlight,
-  expandedGaps,
-  allExpanded,
-  onToggleGap,
+  gapState,
+  gapShortcutNumbers,
 }) => {
   const leftRef = React.useRef<HTMLDivElement>(null);
   const rightRef = React.useRef<HTMLDivElement>(null);
@@ -292,106 +283,55 @@ export const SplitView: React.FC<Props> = ({
 
   const oldLines = React.useMemo(() => oldFile?.split('\n') ?? [], [oldFile]);
   const newLines = React.useMemo(() => newFile?.split('\n') ?? [], [newFile]);
-
-  const sections = React.useMemo<Section[]>(() => {
-    const result: Section[] = [];
-
-    for (let h = 0; h <= hunks.length; h++) {
-      const gapId = `gap-${h}`;
-      const expanded = allExpanded || !!expandedGaps[gapId];
-
-      let oldStart: number;
-      let oldEnd: number;
-      let newStart: number;
-      let newEnd: number;
-
-      if (h === 0) {
-        oldStart = 0;
-        newStart = 0;
-        oldEnd = hunks.length > 0 ? hunks[0].oldStart - 2 : oldLines.length - 1;
-        newEnd = hunks.length > 0 ? hunks[0].newStart - 2 : newLines.length - 1;
-      } else if (h === hunks.length) {
-        const prev = hunks[h - 1];
-        oldStart = prev.oldStart + prev.oldCount - 1;
-        newStart = prev.newStart + prev.newCount - 1;
-        oldEnd = oldLines.length - 1;
-        newEnd = newLines.length - 1;
-      } else {
-        const prev = hunks[h - 1];
-        oldStart = prev.oldStart + prev.oldCount - 1;
-        newStart = prev.newStart + prev.newCount - 1;
-        oldEnd = hunks[h].oldStart - 2;
-        newEnd = hunks[h].newStart - 2;
-      }
-
-      const oldGap: { content: string; lineNo: number }[] = [];
-      const newGap: { content: string; lineNo: number }[] = [];
-
-      for (let i = oldStart; i <= oldEnd; i++) {
-        if (i >= 0 && i < oldLines.length) {
-          oldGap.push({ content: oldLines[i], lineNo: i + 1 });
-        }
-      }
-      for (let i = newStart; i <= newEnd; i++) {
-        if (i >= 0 && i < newLines.length) {
-          newGap.push({ content: newLines[i], lineNo: i + 1 });
-        }
-      }
-
-      const hiddenCount = Math.max(oldGap.length, newGap.length);
-      if (hiddenCount > 0) {
-        result.push({
-          kind: 'gap',
-          gapId,
-          hiddenCount,
-          expanded,
-          oldLines: oldGap,
-          newLines: newGap,
-        });
-      }
-
-      if (h < hunks.length) {
-        result.push({ kind: 'hunk', pairs: buildRowPairs(hunks[h].lines) });
-      }
-    }
-
-    return result;
-  }, [hunks, oldLines, newLines, expandedGaps, allExpanded]);
+  const sections = React.useMemo(() => buildDiffRenderSections(hunks, gapState), [hunks, gapState]);
 
   const leftNodes: React.ReactNode[] = [];
   const rightNodes: React.ReactNode[] = [];
 
-  sections.forEach((section, si) => {
-    if (section.kind === 'gap') {
-      if (section.expanded) {
-        section.oldLines.forEach((gl, i) =>
-          leftNodes.push(renderContextRow(gl.content, gl.lineNo, `g${si}-l${i}`, oldHighlight?.[gl.lineNo - 1])),
-        );
-        section.newLines.forEach((gl, i) =>
-          rightNodes.push(renderContextRow(gl.content, gl.lineNo, `g${si}-r${i}`, newHighlight?.[gl.lineNo - 1], true)),
-        );
-        const diff = section.oldLines.length - section.newLines.length;
-        if (diff > 0) {
-          for (let p = 0; p < diff; p++)
-            rightNodes.push(renderPadRow(`g${si}-rp${p}`));
-        } else if (diff < 0) {
-          for (let p = 0; p < -diff; p++)
-            leftNodes.push(renderPadRow(`g${si}-lp${p}`));
+  sections.forEach((section) => {
+    if (section.kind === 'context') {
+      for (let i = 0; i < section.count; i++) {
+        const oldNo = section.oldStart + i > 0 && section.oldStart + i <= oldLines.length ? section.oldStart + i : undefined;
+        const newNo = section.newStart + i > 0 && section.newStart + i <= newLines.length ? section.newStart + i : undefined;
+
+        if (oldNo != null) {
+          leftNodes.push(renderContextRow(
+            oldLines[oldNo - 1],
+            oldNo,
+            `${section.key}-l${i}`,
+            oldHighlight?.[oldNo - 1],
+          ));
+        } else {
+          leftNodes.push(renderPadRow(`${section.key}-lp${i}`));
         }
-      } else {
-        const gapEl = (key: string) => (
-          <HiddenLinesGap
-            key={key}
-            count={section.hiddenCount}
-            index={si}
-            onClick={() => onToggleGap(section.gapId)}
-          />
-        );
-        leftNodes.push(gapEl(`g${si}-l`));
-        rightNodes.push(gapEl(`g${si}-r`));
+
+        if (newNo != null) {
+          rightNodes.push(renderContextRow(
+            newLines[newNo - 1],
+            newNo,
+            `${section.key}-r${i}`,
+            newHighlight?.[newNo - 1],
+            true,
+          ));
+        } else {
+          rightNodes.push(renderPadRow(`${section.key}-rp${i}`));
+        }
       }
+    } else if (section.kind === 'gap') {
+      const gapIndex = Number(section.gap.id.replace('gap-', '')) || 0;
+      const gapEl = (key: string) => (
+        <HiddenLinesGap
+          key={key}
+          count={getGapHiddenCount(section.gap)}
+          index={gapIndex}
+          shortcutNumber={gapShortcutNumbers[section.gap.id]}
+        />
+      );
+      leftNodes.push(gapEl(`${section.key}-l`));
+      rightNodes.push(gapEl(`${section.key}-r`));
     } else {
-      section.pairs.forEach((pair, pi) => {
+      const pairs = buildRowPairs(section.hunk.lines);
+      pairs.forEach((pair, pi) => {
         let leftHL: Change[] | undefined;
         let rightHL: Change[] | undefined;
 
@@ -407,8 +347,8 @@ export const SplitView: React.FC<Props> = ({
         const leftTokens = pair.left.lineNo != null ? oldHighlight?.[pair.left.lineNo - 1] : undefined;
         const rightTokens = pair.right.lineNo != null ? newHighlight?.[pair.right.lineNo - 1] : undefined;
 
-        leftNodes.push(renderRow(pair.left, `h${si}-l${pi}`, leftHL, leftTokens, false));
-        rightNodes.push(renderRow(pair.right, `h${si}-r${pi}`, rightHL, rightTokens, true));
+        leftNodes.push(renderRow(pair.left, `h${section.hunkIndex}-l${pi}`, leftHL, leftTokens, false));
+        rightNodes.push(renderRow(pair.right, `h${section.hunkIndex}-r${pi}`, rightHL, rightTokens, true));
       });
     }
   });

@@ -6,6 +6,17 @@ import { DEFAULT_CONFIG } from '../../shared/config';
 import type { ThemeColors } from '../../shared/theme';
 import { DEFAULT_THEME } from '../../shared/theme';
 import { rpc } from '../rpc';
+import {
+  buildInitialGapState,
+  diffFingerprint,
+  makeDiffGapKey,
+  revealAllGapInState,
+  revealGapLinesInState,
+  resetGapInState,
+  toggleAllGapsInState,
+  type DiffGapState,
+  type GapRevealSide,
+} from '../diffGaps';
 import { fuzzyMatch } from './fuzzy';
 
 export type DiffMode = 'unified' | 'split' | 'newest';
@@ -21,10 +32,16 @@ export interface TabData {
   plainFile: PlainFile | null;
   loading: boolean;
   error: string | null;
+  gapKey: string | null;
 }
 
-function emptyTab(path: string, viewMode: ViewMode, fileType: 'tracked' | 'untracked' | null): TabData {
-  return { path, viewMode, fileType, fileDiff: null, plainFile: null, loading: true, error: null };
+function emptyTab(
+  path: string,
+  viewMode: ViewMode,
+  fileType: 'tracked' | 'untracked' | null,
+  gapKey: string | null = null,
+): TabData {
+  return { path, viewMode, fileType, fileDiff: null, plainFile: null, loading: true, error: null, gapKey };
 }
 
 /**
@@ -70,6 +87,7 @@ export const openInTab = createAsyncThunk(
   ) => {
     if (args.viewMode === 'diff') {
       const compareMode = (getState() as RootState).ui.compareMode;
+      const gapKey = makeDiffGapKey(args.path, args.fileType, compareMode);
       const diff = await rpc('getFileDiff', {
         path: args.path,
         untracked: args.fileType === 'untracked' ? true : undefined,
@@ -79,10 +97,10 @@ export const openInTab = createAsyncThunk(
         dispatch(fetchGitStatus());
         dispatch(fetchFileTree());
       }
-      return { ...args, diff, plain: null as PlainFile | null };
+      return { ...args, diff, plain: null as PlainFile | null, gapKey };
     } else {
       const plain = await rpc('getFilePlain', { path: args.path });
-      return { ...args, diff: null as FileDiff | null, plain };
+      return { ...args, diff: null as FileDiff | null, plain, gapKey: null as string | null };
     }
   },
 );
@@ -94,6 +112,7 @@ export const loadMetaFile = createAsyncThunk(
     { dispatch, getState },
   ) => {
     const compareMode = (getState() as RootState).ui.compareMode;
+    const gapKey = makeDiffGapKey(args.path, args.type, compareMode);
     const diff = await rpc('getFileDiff', {
       path: args.path,
       untracked: args.type === 'untracked' ? true : undefined,
@@ -103,7 +122,7 @@ export const loadMetaFile = createAsyncThunk(
       dispatch(fetchGitStatus());
       dispatch(fetchFileTree());
     }
-    return { path: args.path, type: args.type, diff };
+    return { path: args.path, type: args.type, diff, gapKey };
   },
 );
 
@@ -311,25 +330,33 @@ export interface PerFolderState {
   treeCursor: number;
   acceptedFiles: Record<string, true>;
   reviewComments: ReviewComment[];
+  diffGapStates: Record<string, DiffGapState>;
+  diffScrollPositions: Record<string, number>;
 }
 
-const initialPerFolderState: PerFolderState = {
-  tabs: [],
-  activeTabIndex: -1,
-  activeSource: 'meta',
-  metaTab: null,
-  expandedDirs: {},
-  treeCursor: 0,
-  acceptedFiles: {},
-  reviewComments: [],
-};
+function createPerFolderState(): PerFolderState {
+  return {
+    tabs: [],
+    activeTabIndex: -1,
+    activeSource: 'meta',
+    metaTab: null,
+    expandedDirs: {},
+    treeCursor: 0,
+    acceptedFiles: {},
+    reviewComments: [],
+    diffGapStates: {},
+    diffScrollPositions: {},
+  };
+}
+
+const initialPerFolderState: PerFolderState = createPerFolderState();
 
 /** Get the per-folder context for the current folder (for use inside Immer reducers — initializes on first access). */
 function getCtx(state: UIState): PerFolderState {
   const key = state.currentFolder;
   if (!key) return initialPerFolderState;
   if (!state.perFolder[key]) {
-    state.perFolder[key] = { ...initialPerFolderState, tabs: [], expandedDirs: {}, acceptedFiles: {}, reviewComments: [] };
+    state.perFolder[key] = createPerFolderState();
   }
   return state.perFolder[key];
 }
@@ -343,6 +370,33 @@ function getPerFolder(state: RootState): PerFolderState {
 export const selectPerFolder = (state: RootState): PerFolderState =>
   state.ui.perFolder[state.ui.currentFolder] ?? initialPerFolderState;
 
+function activeViewFromCtx(ctx: PerFolderState): TabData | null {
+  if (ctx.activeSource === 'meta') return ctx.metaTab;
+  if (ctx.activeTabIndex >= 0 && ctx.activeTabIndex < ctx.tabs.length) return ctx.tabs[ctx.activeTabIndex];
+  return null;
+}
+
+function activeGapKey(state: UIState): string | null {
+  return activeViewFromCtx(getCtx(state))?.gapKey ?? null;
+}
+
+function ensureDiffGapState(ctx: PerFolderState, gapKey: string | null, diff: FileDiff | null): void {
+  if (!gapKey || !diff || diff.tooLarge || diff.hunks.length === 0) {
+    if (gapKey) {
+      delete ctx.diffGapStates[gapKey];
+      delete ctx.diffScrollPositions[gapKey];
+    }
+    return;
+  }
+
+  const fingerprint = diffFingerprint(diff);
+  const existing = ctx.diffGapStates[gapKey];
+  if (!existing || existing.fingerprint !== fingerprint) {
+    ctx.diffGapStates[gapKey] = buildInitialGapState(diff);
+    delete ctx.diffScrollPositions[gapKey];
+  }
+}
+
 // --- Folder thunks ---
 
 export const fetchCurrentFolder = createAsyncThunk('folder/fetchCurrent', () =>
@@ -353,17 +407,13 @@ export const fetchKnownFolders = createAsyncThunk('folder/fetchKnown', () =>
   rpc('getKnownFolders', {}),
 );
 
-export const addFolder = createAsyncThunk('folder/add', async (folder: string) =>
-  rpc('addKnownFolder', { folder }),
-);
-
 export const removeFolder = createAsyncThunk('folder/remove', async (folder: string) =>
   rpc('removeKnownFolder', { folder }),
 );
 
 export const switchFolder = createAsyncThunk(
   'folder/switch',
-  async (folder: string, { dispatch }) => {
+  async (folder: string) => {
     await rpc('changeFolder', { folder });
     // The main process will push 'folderChanged', which triggers a full reload
     // in App.tsx. We don't need to do anything else here.
@@ -372,7 +422,7 @@ export const switchFolder = createAsyncThunk(
 
 export const pickAndAddFolder = createAsyncThunk(
   'folder/pickAndAdd',
-  async (_, { dispatch }) => {
+  async () => {
     const folder = await rpc('pickFolder', {});
     if (!folder) return null;
     const folders = await rpc('addKnownFolder', { folder });
@@ -426,9 +476,6 @@ const folderSlice = createSlice({
       .addCase(fetchKnownFolders.fulfilled, (state, action) => {
         state.knownFolders = action.payload;
       })
-      .addCase(addFolder.fulfilled, (state, action) => {
-        state.knownFolders = action.payload;
-      })
       .addCase(removeFolder.fulfilled, (state, action) => {
         state.knownFolders = action.payload;
       })
@@ -454,8 +501,6 @@ interface UIState {
   perFolder: Record<string, PerFolderState>;
 
   // --- Global state ---
-  commitLoading: boolean;
-  commitError: string | null;
   configModalOpen: boolean;
   fuzzySearchOpen: boolean;
   fuzzySearchQuery: string;
@@ -467,8 +512,6 @@ interface UIState {
   contentSearchLoading: boolean;
   diffMode: DiffMode;
   compareMode: CompareMode;
-  expandedGaps: Record<string, boolean>;
-  allExpanded: boolean;
   reviewModalOpen: boolean;
   folderPickerOpen: boolean;
   folderPickerCursor: number;
@@ -480,8 +523,6 @@ const uiSlice = createSlice({
     currentFolder: '',
     perFolder: {},
 
-    commitLoading: false,
-    commitError: null,
     configModalOpen: false,
     fuzzySearchOpen: false,
     fuzzySearchQuery: '',
@@ -493,8 +534,6 @@ const uiSlice = createSlice({
     contentSearchLoading: false,
     diffMode: 'unified',
     compareMode: 'status',
-    expandedGaps: {},
-    allExpanded: false,
     reviewModalOpen: false,
     folderPickerOpen: false,
     folderPickerCursor: 0,
@@ -503,15 +542,13 @@ const uiSlice = createSlice({
     setCurrentFolder(state, action: { payload: string }) {
       state.currentFolder = action.payload;
       if (!state.perFolder[action.payload]) {
-        state.perFolder[action.payload] = { ...initialPerFolderState, tabs: [], expandedDirs: {}, acceptedFiles: {}, reviewComments: [] };
+        state.perFolder[action.payload] = createPerFolderState();
       }
     },
     activateTab(state, action: { payload: number }) {
       const ctx = getCtx(state);
       ctx.activeTabIndex = action.payload;
       ctx.activeSource = 'tab';
-      state.expandedGaps = {};
-      state.allExpanded = false;
     },
     removeTab(state, action: { payload: number }) {
       const ctx = getCtx(state);
@@ -525,8 +562,6 @@ const uiSlice = createSlice({
       } else if (idx < ctx.activeTabIndex) {
         ctx.activeTabIndex--;
       }
-      state.expandedGaps = {};
-      state.allExpanded = false;
     },
     toggleAccepted(state, action: { payload: string }) {
       const ctx = getCtx(state);
@@ -594,25 +629,52 @@ const uiSlice = createSlice({
     },
     toggleCompareMode(state) {
       state.compareMode = state.compareMode === 'status' ? 'primary' : 'status';
-      state.expandedGaps = {};
-      state.allExpanded = false;
       for (const ctx of Object.values(state.perFolder)) {
         ctx.tabs = [];
         ctx.activeTabIndex = -1;
         ctx.activeSource = 'meta';
         ctx.metaTab = null;
         ctx.acceptedFiles = {};
+        ctx.diffGapStates = {};
+        ctx.diffScrollPositions = {};
       }
     },
-    setDiffMode(state, action: { payload: DiffMode }) {
-      state.diffMode = action.payload;
+    revealGapLines(state, action: { payload: { gapId: string; side: GapRevealSide; count?: number } }) {
+      const key = activeGapKey(state);
+      const ctx = getCtx(state);
+      if (key && ctx.diffGapStates[key]) {
+        ctx.diffGapStates[key] = revealGapLinesInState(
+          ctx.diffGapStates[key],
+          action.payload.gapId,
+          action.payload.side,
+          action.payload.count,
+        );
+      }
     },
-    toggleGap(state, action: { payload: string }) {
-      state.expandedGaps[action.payload] = !state.expandedGaps[action.payload];
+    revealAllGap(state, action: { payload: string }) {
+      const key = activeGapKey(state);
+      const ctx = getCtx(state);
+      if (key && ctx.diffGapStates[key]) {
+        ctx.diffGapStates[key] = revealAllGapInState(ctx.diffGapStates[key], action.payload);
+      }
+    },
+    resetGap(state, action: { payload: string }) {
+      const key = activeGapKey(state);
+      const ctx = getCtx(state);
+      if (key && ctx.diffGapStates[key]) {
+        ctx.diffGapStates[key] = resetGapInState(ctx.diffGapStates[key], action.payload);
+      }
     },
     toggleAllGaps(state) {
-      state.allExpanded = !state.allExpanded;
-      state.expandedGaps = {};
+      const key = activeGapKey(state);
+      const ctx = getCtx(state);
+      if (key && ctx.diffGapStates[key]) {
+        ctx.diffGapStates[key] = toggleAllGapsInState(ctx.diffGapStates[key]);
+      }
+    },
+    saveDiffScrollPosition(state, action: { payload: { key: string; top: number } }) {
+      const ctx = getCtx(state);
+      ctx.diffScrollPositions[action.payload.key] = Math.max(0, Math.round(action.payload.top));
     },
     toggleDir(state, action: { payload: string }) {
       const ctx = getCtx(state);
@@ -664,8 +726,6 @@ const uiSlice = createSlice({
       const ctx = getCtx(state);
       if (ctx.metaTab) {
         ctx.activeSource = 'meta';
-        state.expandedGaps = {};
-        state.allExpanded = false;
       }
     },
     openFolderPicker(state) {
@@ -686,7 +746,7 @@ const uiSlice = createSlice({
       .addCase(fetchCurrentFolder.fulfilled, (state, action) => {
         state.currentFolder = action.payload;
         if (!state.perFolder[action.payload]) {
-          state.perFolder[action.payload] = { ...initialPerFolderState, tabs: [], expandedDirs: {}, acceptedFiles: {}, reviewComments: [] };
+          state.perFolder[action.payload] = createPerFolderState();
         }
       })
       .addCase(removeFolder.fulfilled, (state, action) => {
@@ -714,15 +774,14 @@ const uiSlice = createSlice({
       .addCase(openInTab.pending, (state, action) => {
         const ctx = getCtx(state);
         const { path, viewMode, fileType } = action.meta.arg;
-        ctx.tabs.push(emptyTab(path, viewMode, fileType));
+        const gapKey = viewMode === 'diff' ? makeDiffGapKey(path, fileType, state.compareMode) : null;
+        ctx.tabs.push(emptyTab(path, viewMode, fileType, gapKey));
         ctx.activeTabIndex = ctx.tabs.length - 1;
         ctx.activeSource = 'tab';
-        state.expandedGaps = {};
-        state.allExpanded = false;
       })
       .addCase(openInTab.fulfilled, (state, action) => {
         const ctx = getCtx(state);
-        const { path, diff, plain } = action.payload;
+        const { path, diff, plain, gapKey } = action.payload;
         const tab = ctx.tabs.find((t) => t.path === path && t.loading);
         if (!tab) return;
         tab.loading = false;
@@ -731,6 +790,7 @@ const uiSlice = createSlice({
         if (isStaleGit(diff) && diff?.newFile != null) {
           tab.viewMode = 'plain';
           tab.fileType = null;
+          tab.gapKey = null;
           tab.fileDiff = null;
           tab.plainFile = {
             content: diff.newFile,
@@ -740,8 +800,10 @@ const uiSlice = createSlice({
           return;
         }
 
+        tab.gapKey = gapKey;
         tab.fileDiff = diff;
         tab.plainFile = plain;
+        ensureDiffGapState(ctx, gapKey, diff);
       })
       .addCase(openInTab.rejected, (state, action) => {
         const ctx = getCtx(state);
@@ -756,17 +818,18 @@ const uiSlice = createSlice({
       .addCase(loadMetaFile.pending, (state, action) => {
         const ctx = getCtx(state);
         const { path, type } = action.meta.arg;
-        ctx.metaTab = emptyTab(path, 'diff', type);
+        const gapKey = makeDiffGapKey(path, type, state.compareMode);
+        ctx.metaTab = emptyTab(path, 'diff', type, gapKey);
         ctx.activeSource = 'meta';
-        state.expandedGaps = {};
-        state.allExpanded = false;
       })
       .addCase(loadMetaFile.fulfilled, (state, action) => {
         const ctx = getCtx(state);
         if (ctx.metaTab && ctx.metaTab.path === action.payload.path) {
           ctx.metaTab.loading = false;
+          ctx.metaTab.gapKey = action.payload.gapKey;
           ctx.metaTab.fileDiff = action.payload.diff;
           ctx.metaTab.error = null;
+          ensureDiffGapState(ctx, action.payload.gapKey, action.payload.diff);
         }
       })
       .addCase(loadMetaFile.rejected, (state, action) => {
@@ -777,21 +840,14 @@ const uiSlice = createSlice({
         }
       })
       // --- commit ---
-      .addCase(commitAccepted.pending, (state) => {
-        state.commitLoading = true;
-        state.commitError = null;
-      })
       .addCase(commitAccepted.fulfilled, (state) => {
         const ctx = getCtx(state);
-        state.commitLoading = false;
         ctx.acceptedFiles = {};
         ctx.tabs = [];
         ctx.activeTabIndex = -1;
         ctx.metaTab = null;
-      })
-      .addCase(commitAccepted.rejected, (state, action) => {
-        state.commitLoading = false;
-        state.commitError = action.error.message ?? 'Unknown error';
+        ctx.diffGapStates = {};
+        ctx.diffScrollPositions = {};
       })
       // --- fetchContentSearch ---
       .addCase(fetchContentSearch.pending, (state) => {
@@ -817,7 +873,7 @@ export const {
   toggleAccepted, toggleConfigModal, closeConfigModal,
   openFuzzySearch, closeFuzzySearch, setFuzzySearchQuery, moveFuzzySearchCursor,
   openContentSearch, closeContentSearch, setContentSearchQuery, moveContentSearchCursor,
-  cycleDiffMode, toggleCompareMode, setDiffMode, toggleGap, toggleAllGaps,
+  cycleDiffMode, toggleCompareMode, revealGapLines, revealAllGap, resetGap, toggleAllGaps, saveDiffScrollPosition,
   toggleDir, collapseDir, collapseDirDeep, moveTreeCursor, expandAncestors,
   addReviewComment, removeReviewComment, clearReviewComments,
   toggleReviewModal, closeReviewModal,
@@ -907,17 +963,50 @@ export const selectActiveView = createSelector(
   [
     (state: RootState) => selectPerFolder(state),
   ],
-  (ctx): TabData | null => {
-    if (ctx.activeSource === 'meta') return ctx.metaTab;
-    if (ctx.activeTabIndex >= 0 && ctx.activeTabIndex < ctx.tabs.length) return ctx.tabs[ctx.activeTabIndex];
-    return null;
-  },
+  (ctx): TabData | null => activeViewFromCtx(ctx),
+);
+
+export const selectActiveGapState = createSelector(
+  [
+    (state: RootState) => selectPerFolder(state),
+    selectActiveView,
+  ],
+  (ctx, view): DiffGapState | null => view?.gapKey ? ctx.diffGapStates[view.gapKey] ?? null : null,
+);
+
+export const selectActiveDiffScrollTop = createSelector(
+  [
+    (state: RootState) => selectPerFolder(state),
+    selectActiveView,
+  ],
+  (ctx, view): number | null => view?.gapKey ? ctx.diffScrollPositions[view.gapKey] ?? null : null,
 );
 
 export const selectActiveFilePath = createSelector(
   [selectActiveView],
   (view): string | null => view?.path ?? null,
 );
+
+function readCurrentDiffScrollTop(): number | null {
+  if (typeof document === 'undefined') return null;
+  const container = document.getElementById('diff-scroll-container');
+  if (!container) return null;
+
+  if (container.scrollHeight > container.clientHeight) {
+    return container.scrollTop;
+  }
+
+  const splitScroller = container.querySelector<HTMLElement>('[data-split-scroll]');
+  return splitScroller?.scrollTop ?? null;
+}
+
+export const captureActiveDiffScrollPosition = () =>
+  (dispatch: AppDispatch, getState: () => RootState) => {
+    const view = selectActiveView(getState());
+    if (!view?.gapKey) return;
+    const top = readCurrentDiffScrollTop();
+    if (top != null) dispatch(saveDiffScrollPosition({ key: view.gapKey, top }));
+  };
 
 // --- Navigation thunks ---
 
@@ -931,19 +1020,20 @@ export const revealFileInTree = (filePath: string) =>
 
 export const navigateMetaFile = (direction: 1 | -1) =>
   (dispatch: AppDispatch, getState: () => RootState) => {
+    dispatch(captureActiveDiffScrollPosition());
     const state = getState();
     const changedPaths = selectChangedPaths(state);
     if (changedPaths.size === 0) return;
 
     // Build full tree order (all dirs expanded) and filter to changed files
-    const allExpanded: Record<string, boolean> = {};
+    const allDirsExpanded: Record<string, boolean> = {};
     for (const f of state.fileTree.files) {
       const parts = f.split('/');
       for (let i = 1; i < parts.length; i++) {
-        allExpanded[parts.slice(0, i).join('/')] = true;
+        allDirsExpanded[parts.slice(0, i).join('/')] = true;
       }
     }
-    const allRows = buildVisibleRows(state.fileTree.files, allExpanded);
+    const allRows = buildVisibleRows(state.fileTree.files, allDirsExpanded);
     const fileList = selectFileList(state);
     const typeMap = new Map(fileList.map((f) => [f.path, f.type]));
     const ordered = allRows

@@ -9,8 +9,11 @@ import {
   type AgentSession,
   type ResourceLoader,
 } from '@earendil-works/pi-coding-agent';
-import type { LlmCallResult } from '../shared/rpc';
 import { getCommitMessageDiffContext } from './git';
+
+type LlmCallResult =
+  | { ok: true; response: string }
+  | { ok: false; error_code: 'not_installed' | 'request_failed'; error?: string };
 
 const SYSTEM_PROMPT = `You are a helpful assistant.
 Answer the user's prompt directly and concisely.

@@ -9,15 +9,7 @@ import {
 } from './store';
 import { MONO_FONT } from '../shared/theme';
 import { matchesShortcut, formatShortcut } from './shortcuts';
-
-function formatComments(comments: { filePath: string; startLine: number; endLine: number; codeSnippet: string; comment: string }[]): string {
-  return comments
-    .map((c) => {
-      const lineRange = c.startLine === c.endLine ? `line ${c.startLine}` : `lines ${c.startLine}-${c.endLine}`;
-      return `Comment on ${c.filePath}:\nCode (${lineRange}):\n${c.codeSnippet}\nComment: ${c.comment}`;
-    })
-    .join('\n\n');
-}
+import { formatReviewComments } from './reviewComments';
 
 export const ReviewModal: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -25,7 +17,7 @@ export const ReviewModal: React.FC = () => {
   const shortcuts = useAppSelector((s) => s.config.data.shortcuts);
 
   const handleCopy = useCallback(() => {
-    const text = formatComments(comments);
+    const text = formatReviewComments(comments);
     navigator.clipboard.writeText(text);
   }, [comments]);
 

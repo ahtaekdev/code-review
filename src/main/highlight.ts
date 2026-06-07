@@ -112,7 +112,7 @@ export async function updateHighlighterTheme(theme: FullTheme): Promise<void> {
   await initHighlighter(theme);
 }
 
-export function detectLang(filePath: string): string | null {
+function detectLang(filePath: string): string | null {
   const basename = path.basename(filePath).toLowerCase();
   if (basename === 'dockerfile' || basename.startsWith('dockerfile.'))
     return 'dockerfile';

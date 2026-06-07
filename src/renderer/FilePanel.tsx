@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import {
   useAppDispatch, useAppSelector,
   openFileInTab,
-  selectVisibleRows, selectChangedPaths, selectFileList, selectPerFolder,
+  selectVisibleRows, selectChangedPaths, selectPerFolder,
   toggleDir, moveTreeCursor,
   type TreeRow,
 } from './store';

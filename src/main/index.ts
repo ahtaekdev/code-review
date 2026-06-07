@@ -8,7 +8,7 @@ import { loadConfig, getKnownFolders, addKnownFolder, removeKnownFolder, getActi
 import { loadFullTheme } from './theme';
 import { initHighlighter, updateHighlighterTheme, highlightCode } from './highlight';
 import { createWatcher, type Watcher } from './watcher';
-import { callLlmNoTools, generateCommitMessage } from './llm';
+import { generateCommitMessage } from './llm';
 
 const argv = process.argv.slice(app.isPackaged ? 1 : 2);
 const devMode = argv.includes('--dev');
@@ -86,10 +86,6 @@ registerRpc('getFilePlain', async ({ path: filePath }) => {
   return { content, highlight };
 });
 
-registerRpc('readFile', async ({ path }) => {
-  return readFile(targetDir, path);
-});
-
 registerRpc('getConfig', async () => loadConfig());
 
 registerRpc('getTheme', async () => loadFullTheme().colors);
@@ -103,8 +99,6 @@ registerRpc('searchContent', async ({ query }) => {
   await ensureGitRepo();
   return searchContent(targetDir, query);
 });
-
-registerRpc('callLlm', async ({ prompt }) => callLlmNoTools(targetDir, prompt));
 
 registerRpc('getCurrentFolder', async () => targetDir);
 
