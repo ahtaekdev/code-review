@@ -339,7 +339,7 @@ function statusFromPorcelainXY(xy: string): ChangeKind | null {
 async function getStatusGitStatus(dir: string): Promise<GitStatus> {
   const { stdout } = await exec(
     'git',
-    ['status', '--porcelain=v2', '--branch', '--no-renames'],
+    ['status', '--porcelain=v2', '--branch', '--no-renames', '--untracked-files=all'],
     { cwd: dir, maxBuffer: MAX_BUFFER },
   );
 

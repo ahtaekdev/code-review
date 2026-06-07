@@ -75,7 +75,6 @@ export const FilePanel: React.FC = React.memo(() => {
   }
 
   const branch = gitStatus.data?.branch ?? '';
-  const compareLabel = compareMode === 'primary' ? `vs ${gitStatus.data?.baseBranch ?? 'primary'}` : 'git status';
 
   function handleRowClick(row: TreeRow, index: number) {
     dispatch(moveTreeCursor(index));
@@ -94,7 +93,6 @@ export const FilePanel: React.FC = React.memo(() => {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, fontSize: 12, color: 'var(--cr-muted-fg)' }}>
           <span>{branch}</span>
-          <span>· {compareLabel}</span>
           {stats.length > 0 && (
             <span style={{ display: 'inline-flex', gap: 4 }}>
               {stats.map((s, i) => (

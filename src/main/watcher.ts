@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 
 const exec = promisify(execFile);
@@ -34,6 +34,19 @@ function isIgnored(relPath: string, ignored: Set<string>): boolean {
     }
   }
   return false;
+}
+
+function isIgnoredByGit(baseDir: string, relPath: string): boolean {
+  if (!relPath) return false;
+  try {
+    execFileSync('git', ['check-ignore', '-q', '--', relPath], {
+      cwd: baseDir,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -87,8 +100,10 @@ export async function createWatcher(
 ): Promise<Watcher> {
   const ignored = await getIgnoredDirs(dir);
 
+  let closed = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const debounced = () => {
+    if (closed) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(onChange, debounceMs);
   };
@@ -102,28 +117,112 @@ export async function createWatcher(
 
     return {
       close() {
+        closed = true;
         if (timer) clearTimeout(timer);
         w.close();
       },
     };
   }
 
-  // Linux / other: per-directory inotify watches, pre-filtered by git ignores
-  const dirs = walkDirs(dir, ignored);
-  const watchers: fs.FSWatcher[] = [];
-  for (const d of dirs) {
+  // Linux / other: per-directory inotify watches, pre-filtered by git ignores.
+  // When a new directory appears, add watches for it (and any subdirectories)
+  // immediately; otherwise later writes inside that directory are invisible.
+  const watchers = new Map<string, fs.FSWatcher>();
+
+  const relativeFromBase = (absPath: string): string | null => {
+    const rel = path.relative(dir, absPath);
+    if (!rel) return '';
+    if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return null;
+    return rel.replace(/\\/g, '/');
+  };
+
+  const shouldIgnore = (rel: string): boolean => {
+    if (!rel) return false;
+    if (isIgnored(rel, ignored)) return true;
+    if (isIgnoredByGit(dir, rel)) {
+      ignored.add(rel);
+      return true;
+    }
+    return false;
+  };
+
+  const removeWatchTree = (absDir: string) => {
+    const resolved = path.resolve(absDir);
+    const prefix = resolved + path.sep;
+    for (const [watchedDir, watcher] of Array.from(watchers.entries())) {
+      if (watchedDir === resolved || watchedDir.startsWith(prefix)) {
+        watchers.delete(watchedDir);
+        watcher.close();
+      }
+    }
+  };
+
+  const watchDir = (absDir: string) => {
+    if (closed) return;
+
+    const resolved = path.resolve(absDir);
+    if (watchers.has(resolved)) return;
+
+    const rel = relativeFromBase(resolved);
+    if (rel == null || (rel && isIgnored(rel, ignored))) return;
+
     try {
-      const w = fs.watch(d, debounced);
-      watchers.push(w);
+      const w = fs.watch(resolved, (event, filename) => {
+        debounced();
+
+        if (closed) return;
+        if (!filename) {
+          // Some platforms can omit the filename. Fall back to a full scan so
+          // newly-created directories still get watchers.
+          watchTree(dir);
+          return;
+        }
+
+        const changedPath = path.resolve(resolved, filename.toString());
+        watchTree(changedPath, event === 'rename');
+      });
+
+      watchers.set(resolved, w);
+      const remove = () => watchers.delete(resolved);
+      w.on('close', remove);
+      w.on('error', remove);
     } catch {
       // directory may have vanished between scan and watch
     }
+  };
+
+  function watchTree(absPath: string, replaceRoot = false) {
+    if (closed) return;
+
+    const resolved = path.resolve(absPath);
+    const rel = relativeFromBase(resolved);
+    if (rel == null || (rel && isIgnored(rel, ignored))) return;
+
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(resolved);
+    } catch {
+      removeWatchTree(resolved);
+      return;
+    }
+    if (!stat.isDirectory()) return;
+    if (rel && shouldIgnore(rel)) return;
+
+    if (replaceRoot) removeWatchTree(resolved);
+
+    for (const d of walkDirs(dir, ignored, rel)) {
+      watchDir(d);
+    }
   }
+
+  watchTree(dir);
 
   return {
     close() {
+      closed = true;
       if (timer) clearTimeout(timer);
-      for (const w of watchers) w.close();
+      for (const w of Array.from(watchers.values())) w.close();
+      watchers.clear();
     },
   };
 }
