@@ -380,6 +380,20 @@ export async function getGitStatus(dir: string, compareMode: CompareMode = 'stat
     : getStatusGitStatus(dir);
 }
 
+export async function resetFileChanges(dir: string, filePath: string): Promise<void> {
+  const status = await getGitStatus(dir, 'status');
+  if (status.untracked.includes(filePath)) {
+    await exec('git', ['clean', '-f', '--', filePath], { cwd: dir });
+    return;
+  }
+
+  if (!status.files.some((f) => f.path === filePath)) {
+    throw new Error(`File has no changes to reset: ${filePath}`);
+  }
+
+  await exec('git', ['restore', '--staged', '--worktree', '--source=HEAD', '--', filePath], { cwd: dir });
+}
+
 function limitDiffLines(diff: string): string {
   const lines = diff.split(/\r?\n/);
   if (lines.length <= COMMIT_MESSAGE_LINES_PER_FILE) return diff;

@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react';
-import { useAppSelector, useAppDispatch, selectActiveView, selectActiveFilePath, selectActiveGapState, selectActiveDiffScrollTop, revealGapLines, revealAllGap, resetGap, saveDiffScrollPosition, addReviewComment, isStaleGit } from './store';
+import { useAppSelector, useAppDispatch, selectActiveView, selectActiveFilePath, selectActiveGapState, selectActiveDiffScrollTop, revealGapLines, revealAllGap, resetGap, saveDiffScrollPosition, addReviewComment, setReviewCommentDraftOpen, isStaleGit } from './store';
 import { matchesShortcut, formatShortcut } from './shortcuts';
 import { formatReviewComments } from './reviewComments';
 import type { DiffMode, ReviewComment } from './store';
@@ -76,7 +76,7 @@ const CommentDraftBox: React.FC<CommentDraftBoxProps> = React.memo(({
   const hasDraft = draft.trim().length > 0;
 
   useEffect(() => {
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, []);
 
   const buildComment = useCallback((): ReviewComment | null => {
@@ -105,14 +105,22 @@ const CommentDraftBox: React.FC<CommentDraftBoxProps> = React.memo(({
 
   return (
     <div style={{
-      margin: '4px 16px 16px',
-      border: '1px solid var(--cr-border)',
-      borderRadius: 6,
-      background: 'var(--cr-bg)',
-      padding: 12,
-      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      position: 'sticky',
+      bottom: 0,
+      zIndex: 20,
+      marginTop: 'auto',
+      padding: '4px 16px 16px',
+      boxSizing: 'border-box',
+      background: 'linear-gradient(to bottom, transparent, var(--cr-bg) 14px, var(--cr-bg))',
     }}>
-      <div style={{ fontSize: 12, color: 'var(--cr-muted-fg)', marginBottom: 6 }}>
+      <div style={{
+        border: '1px solid var(--cr-border)',
+        borderRadius: 6,
+        background: 'var(--cr-bg)',
+        padding: 12,
+        boxShadow: '0 -4px 12px rgba(0,0,0,0.15)',
+      }}>
+        <div style={{ fontSize: 12, color: 'var(--cr-muted-fg)', marginBottom: 6 }}>
         Comment on {lines.start === lines.end
           ? `line ${lines.start}`
           : `lines ${lines.start}-${lines.end}`}
@@ -134,6 +142,7 @@ const CommentDraftBox: React.FC<CommentDraftBoxProps> = React.memo(({
 
           if (matchesShortcut(e.nativeEvent, submitShortcut)) {
             e.preventDefault();
+            e.stopPropagation();
             submitDraft();
           } else if (e.key === 'Escape') {
             e.preventDefault();
@@ -189,6 +198,7 @@ const CommentDraftBox: React.FC<CommentDraftBoxProps> = React.memo(({
         </button>
       </div>
     </div>
+  </div>
   );
 });
 
@@ -231,6 +241,11 @@ export const DiffPanel: React.FC = () => {
   const [selStart, setSelStart] = useState<number | null>(null);
   const [selEnd, setSelEnd] = useState<number | null>(null);
   const [commentBoxLines, setCommentBoxLines] = useState<{ start: number; end: number } | null>(null);
+
+  useLayoutEffect(() => {
+    dispatch(setReviewCommentDraftOpen(commentBoxLines != null));
+    return () => { dispatch(setReviewCommentDraftOpen(false)); };
+  }, [commentBoxLines, dispatch]);
 
   useEffect(() => {
     savedScrollTopRef.current = savedScrollTop;
@@ -428,6 +443,15 @@ export const DiffPanel: React.FC = () => {
   const { path: selectedFile, viewMode, fileDiff, plainFile, loading: viewLoading, error: viewError, fileType } = view;
   const compareLabel = compareMode === 'primary' ? `vs ${compareBase ?? 'primary'}` : 'git status';
   const isDiff = viewMode === 'diff';
+  const isSplitViewActive = Boolean(
+    !viewLoading
+      && !viewError
+      && isDiff
+      && fileDiff
+      && !fileDiff.tooLarge
+      && fileDiff.hunks.length > 0
+      && diffMode === 'split',
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -461,6 +485,8 @@ export const DiffPanel: React.FC = () => {
         onMouseUp={handleMouseUp}
         onScrollCapture={handleDiffScroll}
       >
+        <div style={{ minHeight: '100%', height: isSplitViewActive ? '100%' : undefined, display: 'flex', flexDirection: 'column' }}>
+          <div style={isSplitViewActive ? { flex: 1, minHeight: 0 } : undefined}>
         {viewLoading && <div style={{ padding: 16, color: 'var(--cr-muted-fg)' }}>Loading...</div>}
         {viewError && <div style={{ padding: 16, color: 'var(--cr-danger-fg)' }}>{viewError}</div>}
 
@@ -513,6 +539,7 @@ export const DiffPanel: React.FC = () => {
         {!viewLoading && !viewError && isDiff && fileDiff && !fileDiff.tooLarge && fileDiff.hunks.length > 0 && diffMode === 'newest' && (
           <NewestView hunks={fileDiff.hunks} newFile={fileDiff.newFile} newHighlight={fileDiff.newHighlight} />
         )}
+          </div>
 
         {commentBoxLines && filePath && (
           <CommentDraftBox
@@ -526,6 +553,7 @@ export const DiffPanel: React.FC = () => {
             onCancel={cancelComment}
           />
         )}
+        </div>
       </div>
     </div>
   );

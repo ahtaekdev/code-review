@@ -28,6 +28,10 @@ export interface RpcSchema {
     args: { paths: string[]; message: string };
     response: void;
   };
+  resetFileChanges: {
+    args: { path: string };
+    response: void;
+  };
   getConfig: {
     args: {};
     response: AppConfig;

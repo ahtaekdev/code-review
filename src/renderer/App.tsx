@@ -23,6 +23,7 @@ import {
   collapseParent,
   deepCollapseParent,
   toggleAccepted,
+  resetFileChanges,
   commitAccepted,
   toggleConfigModal,
   closeConfigModal,
@@ -49,6 +50,12 @@ import { ReviewModal } from './ReviewModal';
 import { FolderPickerModal } from './FolderPickerModal';
 import { ContentSearchModal } from './ContentSearchModal';
 import { SANS_FONT } from '../shared/theme';
+
+function isEditableElement(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const tag = el.tagName;
+  return el.isContentEditable || tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT';
+}
 
 export const App: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -95,6 +102,7 @@ export const App: React.FC = () => {
   const fuzzySearchOpen = useAppSelector((s) => s.ui.fuzzySearchOpen);
   const contentSearchOpen = useAppSelector((s) => s.ui.contentSearchOpen);
   const reviewModalOpen = useAppSelector((s) => s.ui.reviewModalOpen);
+  const reviewCommentDraftOpen = useAppSelector((s) => s.ui.reviewCommentDraftOpen);
   const folderPickerOpen = useAppSelector((s) => s.ui.folderPickerOpen);
   const treeCursor = useAppSelector((s) => selectPerFolder(s).treeCursor);
   const visibleRows = useAppSelector(selectVisibleRows);
@@ -103,6 +111,11 @@ export const App: React.FC = () => {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      if (reviewCommentDraftOpen && matchesShortcut(e, shortcuts.commit)) {
+        e.preventDefault();
+        return;
+      }
+
       // Folder picker shortcut — works from anywhere (except inside folder picker, which handles its own keys)
       if (matchesShortcut(e, shortcuts.openFolder) && !folderPickerOpen) {
         e.preventDefault();
@@ -220,6 +233,22 @@ export const App: React.FC = () => {
         } else if (activeFilePath) {
           dispatch(toggleAccepted(activeFilePath));
         }
+      } else if (matchesShortcut(e, shortcuts.resetFile)) {
+        if (isEditableElement(document.activeElement) || reviewCommentDraftOpen) return;
+        e.preventDefault();
+        if (compareMode !== 'status') return;
+        const cursorRow = visibleRows[treeCursor];
+        const cursorPath = cursorRow && !cursorRow.isDir ? cursorRow.path : null;
+        const resetPath = activeFilePath && changedPaths.has(activeFilePath)
+          ? activeFilePath
+          : cursorPath && changedPaths.has(cursorPath)
+            ? cursorPath
+            : null;
+        if (!resetPath) return;
+        const confirmed = window.confirm(
+          `Reset ${resetPath}?\n\nThis will permanently discard local changes to this file.`,
+        );
+        if (confirmed) dispatch(resetFileChanges(resetPath));
       } else if (matchesShortcut(e, shortcuts.commit)) {
         e.preventDefault();
         if (compareMode === 'status') dispatch(commitAccepted());
@@ -247,7 +276,7 @@ export const App: React.FC = () => {
         }
       }
     },
-    [dispatch, activeFilePath, shortcuts, modalOpen, fuzzySearchOpen, contentSearchOpen, reviewModalOpen, folderPickerOpen, treeCursor, visibleRows, changedPaths, compareMode],
+    [dispatch, activeFilePath, shortcuts, modalOpen, fuzzySearchOpen, contentSearchOpen, reviewModalOpen, reviewCommentDraftOpen, folderPickerOpen, treeCursor, visibleRows, changedPaths, compareMode],
   );
 
   useEffect(() => {

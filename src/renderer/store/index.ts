@@ -205,6 +205,7 @@ export const commitAccepted = createAsyncThunk(
   'ui/commitAccepted',
   async (_, { getState, dispatch }) => {
     const state = getState() as RootState;
+    if (state.ui.reviewCommentDraftOpen) throw new Error('Cannot commit while a review comment draft is open.');
     if (state.ui.compareMode !== 'status') throw new Error('Committing is only available in Git status compare mode.');
     const ctx = getPerFolder(state);
     const paths = Object.keys(ctx.acceptedFiles);
@@ -212,6 +213,19 @@ export const commitAccepted = createAsyncThunk(
     await rpc('commitFiles', { paths, message: 'Committed with Code Review' });
     dispatch(fetchGitStatus());
     dispatch(fetchFileTree());
+  },
+);
+
+export const resetFileChanges = createAsyncThunk(
+  'ui/resetFileChanges',
+  async (path: string, { getState, dispatch }) => {
+    const state = getState() as RootState;
+    if (state.ui.reviewCommentDraftOpen) throw new Error('Cannot reset a file while a review comment draft is open.');
+    if (state.ui.compareMode !== 'status') throw new Error('Resetting files is only available in Git status compare mode.');
+    await rpc('resetFileChanges', { path });
+    dispatch(fetchGitStatus());
+    dispatch(fetchFileTree());
+    return path;
   },
 );
 
@@ -513,6 +527,7 @@ interface UIState {
   diffMode: DiffMode;
   compareMode: CompareMode;
   reviewModalOpen: boolean;
+  reviewCommentDraftOpen: boolean;
   folderPickerOpen: boolean;
   folderPickerCursor: number;
 }
@@ -535,6 +550,7 @@ const uiSlice = createSlice({
     diffMode: 'unified',
     compareMode: 'status',
     reviewModalOpen: false,
+    reviewCommentDraftOpen: false,
     folderPickerOpen: false,
     folderPickerCursor: 0,
   } as UIState,
@@ -722,6 +738,9 @@ const uiSlice = createSlice({
     closeReviewModal(state) {
       state.reviewModalOpen = false;
     },
+    setReviewCommentDraftOpen(state, action: { payload: boolean }) {
+      state.reviewCommentDraftOpen = action.payload;
+    },
     activateMetaSource(state) {
       const ctx = getCtx(state);
       if (ctx.metaTab) {
@@ -849,6 +868,41 @@ const uiSlice = createSlice({
         ctx.diffGapStates = {};
         ctx.diffScrollPositions = {};
       })
+      .addCase(resetFileChanges.fulfilled, (state, action) => {
+        const path = action.payload;
+        const ctx = getCtx(state);
+        const activeTabIndex = ctx.activeTabIndex;
+        const activeTabWasReset = ctx.activeSource === 'tab' && activeTabIndex >= 0 && ctx.tabs[activeTabIndex]?.path === path;
+        const removedBeforeActive = activeTabIndex > 0 && ctx.tabs.slice(0, activeTabIndex).some((t) => t.path === path);
+
+        delete ctx.acceptedFiles[path];
+        ctx.tabs = ctx.tabs.filter((t) => t.path !== path);
+        if (ctx.tabs.length === 0) {
+          ctx.activeTabIndex = -1;
+        } else if (removedBeforeActive) {
+          ctx.activeTabIndex--;
+        } else if (ctx.activeTabIndex >= ctx.tabs.length) {
+          ctx.activeTabIndex = ctx.tabs.length - 1;
+        }
+        if (activeTabWasReset && ctx.activeTabIndex < 0) {
+          ctx.activeSource = 'meta';
+        }
+        if (ctx.metaTab?.path === path) {
+          ctx.metaTab = null;
+          if (ctx.activeSource === 'meta' && ctx.tabs.length > 0) {
+            ctx.activeSource = 'tab';
+            ctx.activeTabIndex = Math.max(0, ctx.activeTabIndex);
+          }
+        }
+
+        const gapKeySuffix = `\u0000${path}`;
+        for (const key of Object.keys(ctx.diffGapStates)) {
+          if (key.endsWith(gapKeySuffix)) delete ctx.diffGapStates[key];
+        }
+        for (const key of Object.keys(ctx.diffScrollPositions)) {
+          if (key.endsWith(gapKeySuffix)) delete ctx.diffScrollPositions[key];
+        }
+      })
       // --- fetchContentSearch ---
       .addCase(fetchContentSearch.pending, (state) => {
         state.contentSearchLoading = true;
@@ -876,7 +930,7 @@ export const {
   cycleDiffMode, toggleCompareMode, revealGapLines, revealAllGap, resetGap, toggleAllGaps, saveDiffScrollPosition,
   toggleDir, collapseDir, collapseDirDeep, moveTreeCursor, expandAncestors,
   addReviewComment, removeReviewComment, clearReviewComments,
-  toggleReviewModal, closeReviewModal,
+  toggleReviewModal, closeReviewModal, setReviewCommentDraftOpen,
   openFolderPicker, closeFolderPicker, moveFolderPickerCursor,
 } = uiSlice.actions;
 

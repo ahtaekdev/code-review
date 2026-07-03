@@ -2,6 +2,7 @@ export interface ShortcutConfig {
   nextFile: string;
   prevFile: string;
   toggleInclude: string;
+  resetFile: string;
   commit: string;
   showConfig: string;
   cycleDiffMode: string;
@@ -51,6 +52,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     nextFile: 'ctrl+j',
     prevFile: 'ctrl+k',
     toggleInclude: 'ctrl+i',
+    resetFile: 'ctrl+shift+z',
     commit: 'ctrl+enter',
     showConfig: 'ctrl+q',
     cycleDiffMode: 'ctrl+\\',
@@ -94,6 +96,7 @@ export const SHORTCUT_LABELS: Record<keyof ShortcutConfig, string> = {
   prevTab: 'Previous tab',
   closeTab: 'Close tab',
   toggleInclude: 'Include / Exclude file',
+  resetFile: 'Reset current file changes',
   commit: 'Commit accepted files',
   showConfig: 'Show shortcuts',
   cycleDiffMode: 'Cycle diff mode',

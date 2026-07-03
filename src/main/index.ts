@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { initRpc, registerRpc } from './rpc';
-import { isGitRepo, getGitStatus, getFileTree, getFileDiff, getUntrackedFileDiff, commitFiles, searchContent } from './git';
+import { isGitRepo, getGitStatus, getFileTree, getFileDiff, getUntrackedFileDiff, commitFiles, resetFileChanges, searchContent } from './git';
 import { readFile, fileSize } from './fs';
 import { loadConfig, getKnownFolders, addKnownFolder, removeKnownFolder, getActiveFolders, addActiveFolder, removeActiveFolder } from './config';
 import { loadFullTheme } from './theme';
@@ -93,6 +93,11 @@ registerRpc('getTheme', async () => loadFullTheme().colors);
 registerRpc('commitFiles', async ({ paths, message }) => {
   const commitMessage = await generateCommitMessage(targetDir, paths, message);
   await commitFiles(targetDir, paths, commitMessage);
+});
+
+registerRpc('resetFileChanges', async ({ path: filePath }) => {
+  await ensureGitRepo();
+  await resetFileChanges(targetDir, filePath);
 });
 
 registerRpc('searchContent', async ({ query }) => {
