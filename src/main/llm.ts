@@ -22,7 +22,7 @@ You have no tools, so do not claim you inspected files, ran commands, or changed
 const COMMIT_MESSAGE_INSTRUCTION =
   'Generate a commit message using the following diff. Output strictly only the commit message text, less than 80 characters.';
 
-const COMMIT_MESSAGE_MODEL_ID = 'gpt-5.4-mini';
+const COMMIT_MESSAGE_MODEL_ID = 'gpt-5.6-luna';
 
 type AvailableModel = ReturnType<ModelRegistry['getAvailable']>[number];
 
